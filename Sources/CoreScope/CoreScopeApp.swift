@@ -61,7 +61,7 @@ struct CoreScopeApp: App {
     }
 
     private var initialSectionForLaunch: DashboardSection {
-        if CommandLine.arguments.contains("--session") || CommandLine.arguments.contains("--session-idle") || CommandLine.arguments.contains("--session-completed") {
+        if CommandLine.arguments.contains("--session") || CommandLine.arguments.contains("--session-idle") || CommandLine.arguments.contains("--session-completed") || CommandLine.arguments.contains("--session-run-30s") {
             return .thermalSession
         } else if CommandLine.arguments.contains("--sensors") {
             return .sensors
@@ -74,7 +74,7 @@ struct CoreScopeApp: App {
             DashboardView(model: model, initialSection: initialSectionForLaunch)
                 .frame(minWidth: 840, minHeight: 620)
                 .onAppear {
-                    if CommandLine.arguments.contains("--capture") {
+                    if CommandLine.arguments.contains("--capture") || CommandLine.arguments.contains("--session-run-30s") {
                         captureSelfToScreenshots()
                     }
                 }
@@ -86,7 +86,89 @@ struct CoreScopeApp: App {
         .defaultSize(width: 960, height: 720)
     }
 
+    @MainActor
     private func captureSelfToScreenshots() {
+        if CommandLine.arguments.contains("--session-run-30s") {
+            print("==> Starting 30-second live Thermal Session on physical M4 hardware...")
+            model.session.startSession(duration: .seconds30)
+
+            Task { @MainActor in
+                var lastReportedCount = 0
+                while self.model.session.state == .running && self.model.session.elapsedSeconds < 31.0 {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    let samples = self.model.session.samples
+                    if samples.count > lastReportedCount {
+                        for i in lastReportedCount..<samples.count {
+                            let s = samples[i]
+                            let peakStr = s.peakDieTemp.map { String(format: "%.1f°C", $0) } ?? "n/a"
+                            let avgStr = s.averageDieTemp.map { String(format: "%.1f°C", $0) } ?? "n/a"
+                            let freqStr = s.pCoreFrequencyMHz.map { "\(Int($0)) MHz" } ?? "unavailable"
+                            print(String(format: "  Sample #%2d [+%4.1fs]: Peak=%@ (%@), Avg=%@, Channels=%d, Pressure=%@, P-Freq=%@, Battery=%d%%",
+                                         i + 1, s.elapsedSeconds, peakStr, s.peakDieSensorName ?? "n/a", avgStr, s.operatingChannelCount, s.thermalPressure.title, freqStr, s.batteryPercent ?? 0))
+                        }
+                        lastReportedCount = samples.count
+                    }
+                }
+
+                if self.model.session.state == .running {
+                    self.model.session.stopSession()
+                }
+
+                print("\n==> Thermal Session successfully completed!")
+                if let summary = self.model.session.lastSummary {
+                    let peakStr = summary.peakObservedTemp.map { String(format: "%.1f °C", $0) } ?? "n/a"
+                    let peakSensor = summary.peakObservedSensor ?? "n/a"
+                    let avgStr = summary.averageObservedTemp.map { String(format: "%.1f °C", $0) } ?? "n/a"
+                    let minStr = summary.minObservedTemp.map { String(format: "%.1f °C", $0) } ?? "n/a"
+                    let initStr = summary.initialTemp.map { String(format: "%.1f °C", $0) } ?? "n/a"
+                    let finalStr = summary.finalTemp.map { String(format: "%.1f °C", $0) } ?? "n/a"
+                    let netChange: String
+                    if let initT = summary.initialTemp, let finT = summary.finalTemp {
+                        let diff = finT - initT
+                        netChange = String(format: "%+.1f °C", diff)
+                    } else {
+                        netChange = "n/a"
+                    }
+
+                    print("Session Summary:")
+                    print("  - Samples Collected: \(summary.sampleCount)")
+                    print("  - Total Duration: \(String(format: "%.1f", summary.totalDuration)) seconds")
+                    print("  - Peak Observed: \(peakStr) (\(peakSensor))")
+                    print("  - Average Observed: \(avgStr)")
+                    print("  - Minimum Observed: \(minStr)")
+                    print("  - Initial -> Final Temp: \(initStr) -> \(finalStr) (\(netChange))")
+                    print("  - Thermal State Transitions: \(summary.thermalStateTransitions)")
+                } else {
+                    print("ERROR: Summary was nil upon completion!")
+                    exit(1)
+                }
+
+                // Check that sampling has stopped (verify sample count does not increase)
+                let finalSampleCount = self.model.session.samples.count
+                print("\n==> Verifying sampling stops after session completion...")
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                let postCount = self.model.session.samples.count
+                if postCount == finalSampleCount {
+                    print("==> Confirmed: zero additional samples collected after stop (\(postCount) == \(finalSampleCount)).")
+                } else {
+                    print("ERROR: Samples continued to be collected after session stopped! (\(postCount) > \(finalSampleCount))")
+                    exit(1)
+                }
+
+                // Close window to verify applicationShouldTerminateAfterLastWindowClosed
+                print("==> Closing final window to verify CoreScope termination...")
+                guard let window = NSApplication.shared.windows.first(where: { $0.isVisible }) else {
+                    print("No visible window found")
+                    exit(1)
+                }
+                window.performClose(nil)
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                print("==> Window closed successfully. Terminating process.")
+                exit(0)
+            }
+            return
+        }
+
         let isSessionIdleMode = CommandLine.arguments.contains("--session-idle")
         let isSessionCompletedMode = CommandLine.arguments.contains("--session-completed")
         let isSessionMode = CommandLine.arguments.contains("--session")
