@@ -31,6 +31,10 @@ BUNDLE_ID="${BUNDLE_ID:-com.shrihaan.corescope}"
 APP_VERSION="${APP_VERSION:-1.0.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-1}"
 OUTPUT_DIR="${OUTPUT_DIR:-build}"
+if [[ -z "${OUTPUT_DIR}" || "${OUTPUT_DIR}" == "/" || "${OUTPUT_DIR}" == "." || "${OUTPUT_DIR}" == ".." ]]; then
+    echo "ERROR: Refusing to use invalid or unsafe OUTPUT_DIR: '${OUTPUT_DIR}'" >&2
+    exit 1
+fi
 ICON_PATH="${ICON_PATH:-}"
 
 APP_NAME="CoreScope"

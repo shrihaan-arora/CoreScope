@@ -9,6 +9,10 @@ final class DashboardModel: ObservableObject {
 
     private let probe = SensorProbe()
 
+    init(snapshot: SensorSnapshot? = nil) {
+        self.snapshot = snapshot
+    }
+
     func refresh() {
         guard !isRefreshing else { return }
         isRefreshing = true

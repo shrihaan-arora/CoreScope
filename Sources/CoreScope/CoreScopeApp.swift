@@ -47,15 +47,69 @@ struct CoreScopeApp: App {
             }
             exit(0)
         }
+
     }
 
     var body: some Scene {
         WindowGroup {
             DashboardView()
                 .frame(minWidth: 820, minHeight: 610)
+                .onAppear {
+                    if CommandLine.arguments.contains("--capture") {
+                        captureSelfToScreenshots()
+                    }
+                }
         }
         .windowResizability(.contentSize)
         .defaultSize(width: 940, height: 700)
+    }
+
+    private func captureSelfToScreenshots() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            guard let window = NSApplication.shared.windows.first(where: { $0.isVisible }),
+                  let view = window.contentView else {
+                print("No visible window found for capture")
+                exit(1)
+            }
+            let outDir = "docs/screenshots"
+            try? FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
+            guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+                print("Failed to create bitmap rep")
+                exit(1)
+            }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            if let png = rep.representation(using: .png, properties: [:]) {
+                try? png.write(to: URL(fileURLWithPath: "\(outDir)/dashboard.png"))
+                print("Self-captured dashboard to \(outDir)/dashboard.png (\(png.count) bytes)")
+            }
+
+            if let scrollView = findScrollView(in: view) {
+                let clipView = scrollView.contentView
+                clipView.scroll(to: NSPoint(x: 0, y: 340))
+                scrollView.reflectScrolledClipView(clipView)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    guard let rep2 = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+                        exit(0)
+                    }
+                    view.cacheDisplay(in: view.bounds, to: rep2)
+                    if let png2 = rep2.representation(using: .png, properties: [:]) {
+                        try? png2.write(to: URL(fileURLWithPath: "\(outDir)/sensor_explorer.png"))
+                        print("Self-captured sensor explorer to \(outDir)/sensor_explorer.png (\(png2.count) bytes)")
+                    }
+                    exit(0)
+                }
+            } else {
+                exit(0)
+            }
+        }
+    }
+
+    private func findScrollView(in view: NSView) -> NSScrollView? {
+        if let sv = view as? NSScrollView { return sv }
+        for sub in view.subviews {
+            if let found = findScrollView(in: sub) { return found }
+        }
+        return nil
     }
 }
 

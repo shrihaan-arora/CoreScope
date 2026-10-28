@@ -1,10 +1,15 @@
 import SwiftUI
 
 struct DashboardView: View {
-    @StateObject private var model = DashboardModel()
-    @State private var selectedCategory: String = "All"
+    @StateObject private var model: DashboardModel
+    @State private var selectedCategory: String
     @State private var searchText: String = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(model: DashboardModel = DashboardModel(), initialCategory: String = "All") {
+        _model = StateObject(wrappedValue: model)
+        _selectedCategory = State(initialValue: initialCategory)
+    }
 
     var body: some View {
         ZStack {
@@ -25,7 +30,11 @@ struct DashboardView: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .task { model.refresh() }
+        .task {
+            if model.snapshot == nil {
+                model.refresh()
+            }
+        }
     }
 
     // MARK: - A. Compact Application Header
