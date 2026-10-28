@@ -305,6 +305,20 @@ func testM4MacBookAirHardwareBaselineLive() async throws {
     #expect(summary.operatingSensorCount == 41)
     #expect(summary.calibrationSensorCount == 2)
     #expect(summary.dieSensorCount == 24)
+
+    // Phase 1 & 2: M4 PMU channels lack specific public cluster labels
+    #expect(!snapshot.sensorRegistry.hasVerifiedClusterMappings)
+    #expect(snapshot.sensorRegistry.unmappedCount == 24)
+    #expect(!snapshot.sensorRegistry.pCoreCluster.isAvailable)
+    #expect(!snapshot.sensorRegistry.eCoreCluster.isAvailable)
+    #expect(!snapshot.sensorRegistry.gpuCluster.isAvailable)
+    #expect(!snapshot.sensorRegistry.socFabricCluster.isAvailable)
+    #expect(snapshot.sensorRegistry.pCoreCluster.formattedAverage == "Unavailable")
+
+    // Phase 3 & 4: Thermal pressure and clock telemetry
+    #expect(snapshot.thermalPressure != .unknown)
+    #expect(!snapshot.clockTelemetry.isAvailable) // unprivileged CLPC legend absent
+    #expect(snapshot.throttlingAssessment.inference == .normalOperation || snapshot.throttlingAssessment.inference == .thermalPressureElevated)
 }
 
 @Test(.enabled(if: ProcessInfo.processInfo.environment["CORESCOPE_REQUIRE_LIVE_SENSORS"] == "1", "Requires physical Apple Silicon PMU sensor access (set CORESCOPE_REQUIRE_LIVE_SENSORS=1)"))
@@ -537,4 +551,304 @@ private func makeMockSnapshot(
     #expect(sample2.batteryPercent == 45)
     #expect(sample2.isCharging == false)
 }
+
+// MARK: - Phase 8: Cluster Analytics, Thermal Pressure & Clock Telemetry Tests
+
+@Test func testSensorToClusterClassification() throws {
+    // 1. Specific authentic sub-domain names map with verified hardware confidence
+    let (p1, c1) = SensorDescriptor.mapCluster(sensorName: "pdie1", category: .siliconDie)
+    #expect(p1 == .pCoreCluster)
+    #expect(c1 == .verifiedHardwareMetadata)
+
+    let (p2, c2) = SensorDescriptor.mapCluster(sensorName: "CPU-P-Core-1", category: .siliconDie)
+    #expect(p2 == .pCoreCluster)
+    #expect(c2 == .verifiedHardwareMetadata)
+
+    let (e1, ce1) = SensorDescriptor.mapCluster(sensorName: "edie1", category: .siliconDie)
+    #expect(e1 == .eCoreCluster)
+    #expect(ce1 == .verifiedHardwareMetadata)
+
+    let (e2, ce2) = SensorDescriptor.mapCluster(sensorName: "CPU-E-Core-0", category: .siliconDie)
+    #expect(e2 == .eCoreCluster)
+    #expect(ce2 == .verifiedHardwareMetadata)
+
+    let (g1, cg1) = SensorDescriptor.mapCluster(sensorName: "gdie0", category: .siliconDie)
+    #expect(g1 == .gpu)
+    #expect(cg1 == .verifiedHardwareMetadata)
+
+    let (soc1, csoc1) = SensorDescriptor.mapCluster(sensorName: "soc die temp", category: .siliconDie)
+    #expect(soc1 == .socFabric)
+    #expect(csoc1 == .verifiedHardwareMetadata)
+
+    let (ane1, cane1) = SensorDescriptor.mapCluster(sensorName: "ane die", category: .siliconDie)
+    #expect(ane1 == .socFabric)
+    #expect(cane1 == .verifiedHardwareMetadata)
+
+    // 2. Generic PMU die channels on M4 / Apple Silicon must remain unmapped without direct descriptors
+    let (m4_1, cm4_1) = SensorDescriptor.mapCluster(sensorName: "PMU tdie1", category: .siliconDie)
+    #expect(m4_1 == .unmapped)
+    #expect(cm4_1 == .unsupported)
+
+    let (m4_14, cm4_14) = SensorDescriptor.mapCluster(sensorName: "PMU tdie14", category: .siliconDie)
+    #expect(m4_14 == .unmapped)
+    #expect(cm4_14 == .unsupported)
+
+    let (m4_2_8, cm4_2_8) = SensorDescriptor.mapCluster(sensorName: "PMU2 tdie8", category: .siliconDie)
+    #expect(m4_2_8 == .unmapped)
+    #expect(cm4_2_8 == .unsupported)
+}
+
+@Test func testUnknownAndAmbiguousSensorsRemainUnmapped() throws {
+    // Non-die categories must never map to compute clusters
+    let (bat, cBat) = SensorDescriptor.mapCluster(sensorName: "gas gauge battery", category: .battery)
+    #expect(bat == .unmapped)
+    #expect(cBat == .unsupported)
+
+    let (dev, cDev) = SensorDescriptor.mapCluster(sensorName: "PMU tdev2", category: .deviceNode)
+    #expect(dev == .unmapped)
+    #expect(cDev == .unsupported)
+
+    let (nand, cNand) = SensorDescriptor.mapCluster(sensorName: "NAND CH0 temp", category: .storage)
+    #expect(nand == .unmapped)
+    #expect(cNand == .unsupported)
+
+    let (unk, cUnk) = SensorDescriptor.mapCluster(sensorName: "Unknown Heat Node", category: .system)
+    #expect(unk == .unmapped)
+    #expect(cUnk == .unsupported)
+}
+
+@Test func testCalibrationChannelClusterExclusion() throws {
+    let (cal1, cCal1) = SensorDescriptor.mapCluster(sensorName: "PMU tcal", category: .calibration)
+    #expect(cal1 == .unmapped)
+    #expect(cCal1 == .unsupported)
+
+    let readings = [
+        TemperatureReading(id: "cal-1", sensorName: "PMU tcal", temperatureC: 95.0),
+        TemperatureReading(id: "cal-2", sensorName: "PMU2 tcal", temperatureC: 95.0),
+        TemperatureReading(id: "die-1", sensorName: "PMU tdie1", temperatureC: 42.0)
+    ]
+    let registry = SensorRegistry(from: readings)
+
+    // Calibration channels must never contribute to unmapped die count or cluster measurements
+    #expect(registry.unmappedCount == 1) // Only die-1
+    #expect(registry.pCoreCluster.sensorCount == 0)
+    #expect(registry.eCoreCluster.sensorCount == 0)
+    #expect(registry.gpuCluster.sensorCount == 0)
+    #expect(registry.socFabricCluster.sensorCount == 0)
+}
+
+@Test func testClusterAveragesWithMissingAndPresentReadings() throws {
+    // Test 1: Empty or unmapped readings
+    let emptyRegistry = SensorRegistry(from: [
+        TemperatureReading(id: "m4-1", sensorName: "PMU tdie1", temperatureC: 44.0)
+    ])
+    #expect(!emptyRegistry.hasVerifiedClusterMappings)
+    #expect(!emptyRegistry.pCoreCluster.isAvailable)
+    #expect(emptyRegistry.pCoreCluster.averageC == nil)
+    #expect(emptyRegistry.pCoreCluster.peakC == nil)
+    #expect(emptyRegistry.pCoreCluster.formattedAverage == "Unavailable")
+    #expect(emptyRegistry.pCoreCluster.formattedPeak == "Unavailable")
+    #expect(emptyRegistry.pCoreCluster.formattedAverage != "0.0 °C")
+    #expect(emptyRegistry.pCoreCluster.formattedAverage != "0")
+
+    // Test 2: Verified cluster readings
+    let verifiedRegistry = SensorRegistry(from: [
+        TemperatureReading(id: "p-1", sensorName: "pdie1", temperatureC: 40.0),
+        TemperatureReading(id: "p-2", sensorName: "pdie2", temperatureC: 50.0),
+        TemperatureReading(id: "e-1", sensorName: "edie1", temperatureC: 38.0),
+        TemperatureReading(id: "g-1", sensorName: "gdie0", temperatureC: 46.0),
+        TemperatureReading(id: "soc-1", sensorName: "soc die temp", temperatureC: 41.0)
+    ])
+
+    #expect(verifiedRegistry.hasVerifiedClusterMappings)
+
+    // P-Core: average (40 + 50) / 2 = 45.0, peak = 50.0 from pdie2
+    let pCore = verifiedRegistry.pCoreCluster
+    #expect(pCore.isAvailable)
+    #expect(pCore.sensorCount == 2)
+    #expect(pCore.averageC == 45.0)
+    #expect(pCore.peakC == 50.0)
+    #expect(pCore.peakSensorName == "pdie2")
+    #expect(pCore.formattedAverage == "45.0 °C")
+
+    // E-Core: single sensor at 38.0
+    let eCore = verifiedRegistry.eCoreCluster
+    #expect(eCore.isAvailable)
+    #expect(eCore.sensorCount == 1)
+    #expect(eCore.averageC == 38.0)
+    #expect(eCore.peakC == 38.0)
+    #expect(eCore.peakSensorName == "edie1")
+
+    // GPU: single sensor at 46.0
+    let gpu = verifiedRegistry.gpuCluster
+    #expect(gpu.isAvailable)
+    #expect(gpu.sensorCount == 1)
+    #expect(gpu.averageC == 46.0)
+
+    // SoC: single sensor at 41.0
+    let soc = verifiedRegistry.socFabricCluster
+    #expect(soc.isAvailable)
+    #expect(soc.sensorCount == 1)
+    #expect(soc.averageC == 41.0)
+}
+
+@Test func testThermalPressureStateMappings() throws {
+    #expect(ThermalPressureState.from(nativeState: .nominal) == .nominal)
+    #expect(ThermalPressureState.from(nativeState: .fair) == .fair)
+    #expect(ThermalPressureState.from(nativeState: .serious) == .serious)
+    #expect(ThermalPressureState.from(nativeState: .critical) == .critical)
+
+    #expect(ThermalPressureState(label: "Nominal") == .nominal)
+    #expect(ThermalPressureState(label: "Fair") == .fair)
+    #expect(ThermalPressureState(label: "Serious") == .serious)
+    #expect(ThermalPressureState(label: "Critical") == .critical)
+    #expect(ThermalPressureState(label: "Other") == .unknown)
+
+    #expect(ThermalPressureState.nominal < ThermalPressureState.fair)
+    #expect(ThermalPressureState.fair < ThermalPressureState.serious)
+    #expect(ThermalPressureState.serious < ThermalPressureState.critical)
+
+    #expect(!ThermalPressureState.nominal.isThrottlingLikely)
+    #expect(!ThermalPressureState.fair.isThrottlingLikely)
+    #expect(ThermalPressureState.serious.isThrottlingLikely)
+    #expect(ThermalPressureState.critical.isThrottlingLikely)
+
+    #expect(ThermalPressureState.nominal.title == "Nominal")
+    #expect(ThermalPressureState.fair.title == "Elevated (Fair)")
+    #expect(ThermalPressureState.serious.title == "High Pressure (Serious)")
+    #expect(ThermalPressureState.critical.title == "Critical Pressure")
+}
+
+@Test func testThermalPressureMonitorLifecycle() async throws {
+    let monitor = await MainActor.run {
+        ThermalPressureMonitor()
+    }
+    await MainActor.run {
+        #expect(monitor.transitions.isEmpty)
+        monitor.startMonitoring()
+        // Unregister and ensure cleanup
+        monitor.stopMonitoring()
+        monitor.resetTransitions()
+        #expect(monitor.transitions.isEmpty)
+    }
+}
+
+@Test func testClockTelemetryProbeSafetyAndAbsenceOfFakeZero() throws {
+    let result = ClockTelemetryProbe.probe()
+    // Probing without powermetrics / root on Apple Silicon must return .unavailable safely
+    switch result {
+    case .unavailable(let reason):
+        #expect(!reason.isEmpty)
+        #expect(result.telemetry == nil)
+        // Never report frequency as 0 or 0 MHz
+        #expect(result.telemetry?.pCoreFrequencyMHz == nil)
+        #expect(result.telemetry?.eCoreFrequencyMHz == nil)
+    case .measured(let tel):
+        if let p = tel.pCoreFrequencyMHz {
+            #expect(p > 100.0 && p < 6000.0, "Frequency must be in a realistic MHz range: \(p)")
+        }
+        if let e = tel.eCoreFrequencyMHz {
+            #expect(e > 100.0 && e < 5000.0, "Frequency must be in a realistic MHz range: \(e)")
+        }
+    }
+}
+
+@Test func testPerformanceReductionInferenceRulesAndDVFSProtection() throws {
+    // 1. False-Positive Prevention: Nominal thermal state with lower frequency (e.g. 800 MHz DVFS stepdown)
+    let idleTelemetry = ClockTelemetryResult.measured(ClockTelemetry(
+        pCoreFrequencyMHz: 800.0,
+        eCoreFrequencyMHz: 600.0
+    ))
+    let evalNominal = ThrottlingAssessment.evaluate(
+        thermalPressure: .nominal,
+        clockTelemetry: idleTelemetry,
+        isUnderSustainedLoad: false
+    )
+    #expect(evalNominal.inference == .normalOperation, "Lower frequency during Nominal state is normal DVFS/idle, NOT throttling!")
+    #expect(!evalNominal.assessmentSummary.contains("throttling"))
+
+    // 2. Fair thermal pressure with unavailable clock telemetry:
+    // Must NOT claim "CPU throttling detected"
+    let evalFair = ThrottlingAssessment.evaluate(
+        thermalPressure: .fair,
+        clockTelemetry: .unavailable(reason: "Unprivileged user space")
+    )
+    #expect(evalFair.inference == .thermalPressureElevated)
+    #expect(evalFair.assessmentSummary.contains("elevated"))
+    #expect(!evalFair.assessmentSummary.contains("Confirmed"))
+
+    // 3. Serious thermal pressure with unavailable clock telemetry:
+    // Cautious inference "Possible Thermal Reduction"
+    let evalSerious = ThrottlingAssessment.evaluate(
+        thermalPressure: .serious,
+        clockTelemetry: .unavailable(reason: "Unprivileged user space")
+    )
+    #expect(evalSerious.inference == .possibleThermalReduction)
+
+    // 4. Critical thermal pressure with confirmed clock frequency clamped under load:
+    let clampedTelemetry = ClockTelemetryResult.measured(ClockTelemetry(
+        pCoreFrequencyMHz: 950.0,
+        eCoreFrequencyMHz: 600.0
+    ))
+    let evalCriticalClamped = ThrottlingAssessment.evaluate(
+        thermalPressure: .critical,
+        clockTelemetry: clampedTelemetry,
+        isUnderSustainedLoad: true
+    )
+    #expect(evalCriticalClamped.inference == .confirmedThermalThrottling)
+
+    // 5. Nominal thermal pressure with unavailable telemetry:
+    let evalNominalUnavailable = ThrottlingAssessment.evaluate(
+        thermalPressure: .nominal,
+        clockTelemetry: .unavailable(reason: "No legend")
+    )
+    #expect(evalNominalUnavailable.inference == .normalOperation)
+}
+
+@Test func testThermalSessionCSVExporterExtendedHeadersAndFallbacks() throws {
+    let sample = ThermalSample(
+        elapsedSeconds: 1.5,
+        peakDieTemp: 48.5,
+        peakDieSensorName: "PMU tdie2",
+        averageDieTemp: 43.2,
+        pCoreClusterTemp: nil,
+        eCoreClusterTemp: nil,
+        gpuClusterTemp: nil,
+        socFabricTemp: nil,
+        pCoreFrequencyMHz: nil,
+        eCoreFrequencyMHz: nil,
+        gpuFrequencyMHz: nil,
+        operatingChannelCount: 41,
+        thermalState: "Nominal",
+        thermalPressure: .nominal,
+        throttlingInference: .normalOperation,
+        powerMode: .battery,
+        isCharging: false,
+        batteryPercent: 85
+    )
+
+    let csv = ThermalSessionCSVExporter.generateCSV(from: [sample])
+    let rows = csv.components(separatedBy: "\r\n").filter { !$0.isEmpty }
+    #expect(rows.count == 2)
+
+    let header = rows[0]
+    #expect(header.contains("PCoreClusterC"))
+    #expect(header.contains("ECoreClusterC"))
+    #expect(header.contains("GPUClusterC"))
+    #expect(header.contains("SoCClusterC"))
+    #expect(header.contains("PCoreFreqMHz"))
+    #expect(header.contains("ECoreFreqMHz"))
+    #expect(header.contains("GPUFreqMHz"))
+    #expect(header.contains("ThermalState"))
+    #expect(header.contains("ThrottlingStatus"))
+
+    let dataRow = rows[1]
+    #expect(dataRow.contains("48.50"))
+    #expect(dataRow.contains("PMU tdie2"))
+    #expect(dataRow.contains("43.20"))
+    #expect(dataRow.contains("unavailable")) // unmapped clusters & frequencies must be "unavailable"
+    #expect(dataRow.contains("Normal Operation"))
+    #expect(dataRow.contains("Battery power"))
+}
+
 

@@ -654,3 +654,278 @@ struct StatusIndicator: View {
         .overlay(Capsule().strokeBorder(LiquidGlassStyle.violetTint.opacity(0.20), lineWidth: 1))
     }
 }
+
+// MARK: - Thermal Pressure & Throttling Card
+
+struct ThermalPressurePerformanceCard: View {
+    let snapshot: SensorSnapshot?
+
+    var body: some View {
+        let assessment = snapshot?.throttlingAssessment ?? ThrottlingAssessment(
+            thermalPressure: .nominal,
+            clockTelemetry: .unavailable(reason: "No active scan"),
+            inference: .normalOperation,
+            assessmentSummary: "Awaiting hardware snapshot."
+        )
+
+        GlassCard(cornerRadius: 18, padding: 18) {
+            VStack(alignment: .leading, spacing: 14) {
+                // Header
+                HStack(alignment: .center) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "gauge.with.needle.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(LiquidGlassStyle.indigoGlow)
+                        Text("THERMAL PRESSURE & PERFORMANCE INTEGRITY")
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .tracking(1.1)
+                            .foregroundStyle(LiquidGlassStyle.textSecondary)
+                    }
+                    Spacer()
+                    // Thermal pressure badge
+                    HStack(spacing: 6) {
+                        Image(systemName: assessment.thermalPressure.iconName)
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(assessment.thermalPressure.badgeColor)
+                        Text(assessment.thermalPressure.title.uppercased())
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .tracking(0.8)
+                            .foregroundStyle(assessment.thermalPressure.badgeColor)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(assessment.thermalPressure.badgeColor.opacity(0.12), in: Capsule())
+                }
+
+                Divider().opacity(0.12)
+
+                // 2-Column Assessment Grid
+                HStack(alignment: .top, spacing: 16) {
+                    // Left: Throttling / Performance Reduction Status
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 5) {
+                            Circle().fill(inferenceColor(assessment.inference)).frame(width: 6, height: 6)
+                            Text("PERFORMANCE STATUS")
+                                .font(.system(size: 9, weight: .bold, design: .rounded))
+                                .tracking(0.8)
+                                .foregroundStyle(LiquidGlassStyle.textSecondary)
+                        }
+
+                        Text(assessment.inference.rawValue)
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundStyle(inferenceColor(assessment.inference))
+
+                        Text(assessment.inference.explanation)
+                            .font(.system(size: 11))
+                            .foregroundStyle(LiquidGlassStyle.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Divider().opacity(0.12).frame(height: 70)
+
+                    // Right: Clock Telemetry Status
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 5) {
+                            Circle().fill(LiquidGlassStyle.teal).frame(width: 6, height: 6)
+                            Text("CLOCK FREQUENCY TELEMETRY")
+                                .font(.system(size: 9, weight: .bold, design: .rounded))
+                                .tracking(0.8)
+                                .foregroundStyle(LiquidGlassStyle.textSecondary)
+                        }
+
+                        if case .measured(let tel) = assessment.clockTelemetry {
+                            HStack(spacing: 12) {
+                                if let p = tel.pCoreFrequencyMHz {
+                                    Text("P-Core: \(Int(p)) MHz")
+                                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                                        .foregroundStyle(LiquidGlassStyle.textPrimary)
+                                }
+                                if let e = tel.eCoreFrequencyMHz {
+                                    Text("E-Core: \(Int(e)) MHz")
+                                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                                        .foregroundStyle(LiquidGlassStyle.textPrimary)
+                                }
+                            }
+                        } else {
+                            Text("Direct Clock Telemetry: Unavailable")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .foregroundStyle(LiquidGlassStyle.textPrimary)
+                        }
+
+                        Text(assessment.clockTelemetry.reason)
+                            .font(.system(size: 11))
+                            .foregroundStyle(LiquidGlassStyle.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                // Clarification Callout
+                HStack(spacing: 8) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 11))
+                        .foregroundStyle(LiquidGlassStyle.violetTint)
+                    Text("Thermal Pressure reports OS scheduler guidance. Clock frequency throttling is a hardware voltage/frequency power clamp. Direct clock reduction cannot be assumed without verified clock telemetry.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(LiquidGlassStyle.textSecondary)
+                }
+                .padding(.top, 2)
+            }
+        }
+    }
+
+    private func inferenceColor(_ inference: PerformanceReductionInference) -> Color {
+        switch inference {
+        case .normalOperation:
+            return LiquidGlassStyle.emerald
+        case .thermalPressureElevated:
+            return LiquidGlassStyle.amber
+        case .possibleThermalReduction:
+            return Color(red: 1.0, green: 0.45, blue: 0.15)
+        case .confirmedThermalThrottling:
+            return LiquidGlassStyle.coral
+        case .insufficientTelemetry:
+            return LiquidGlassStyle.teal
+        }
+    }
+}
+
+// MARK: - Thermal Domains Section
+
+struct ThermalDomainsSection: View {
+    let snapshot: SensorSnapshot?
+    @State private var isExpanded: Bool = true
+
+    var body: some View {
+        let registry = snapshot?.sensorRegistry ?? SensorRegistry()
+
+        GlassCard(cornerRadius: 18, padding: 18) {
+            VStack(alignment: .leading, spacing: 14) {
+                // Header with expand/collapse
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "square.grid.2x2.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(LiquidGlassStyle.indigoGlow)
+                        Text("THERMAL DOMAINS & CLUSTERS")
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .tracking(1.1)
+                            .foregroundStyle(LiquidGlassStyle.textSecondary)
+
+                        Spacer()
+
+                        Text(registry.hasVerifiedClusterMappings ? "VERIFIED MAPPINGS" : "GENERIC PMU DESCRIPTORS (M4)")
+                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                            .tracking(0.8)
+                            .foregroundStyle(registry.hasVerifiedClusterMappings ? LiquidGlassStyle.emerald : LiquidGlassStyle.textSecondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.white.opacity(0.06), in: Capsule())
+
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(LiquidGlassStyle.textSecondary)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                if isExpanded {
+                    Divider().opacity(0.12)
+
+                    // 4 Cluster Domain Tiles
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                        clusterTile(
+                            measurement: registry.pCoreCluster,
+                            title: "PERFORMANCE CORES (P-CORE)",
+                            icon: "bolt.fill",
+                            accent: LiquidGlassStyle.coral
+                        )
+
+                        clusterTile(
+                            measurement: registry.eCoreCluster,
+                            title: "EFFICIENCY CORES (E-CORE)",
+                            icon: "leaf.fill",
+                            accent: LiquidGlassStyle.emerald
+                        )
+
+                        clusterTile(
+                            measurement: registry.gpuCluster,
+                            title: "GPU COMPUTE CORES",
+                            icon: "sparkles",
+                            accent: LiquidGlassStyle.amber
+                        )
+
+                        clusterTile(
+                            measurement: registry.socFabricCluster,
+                            title: "SOC / FABRIC / NEURAL ENGINE",
+                            icon: "cpu",
+                            accent: LiquidGlassStyle.indigoGlow
+                        )
+                    }
+
+                    // Explanatory note when unmapped
+                    if !registry.hasVerifiedClusterMappings {
+                        HStack(spacing: 8) {
+                            Image(systemName: "shield.slash")
+                                .font(.system(size: 11))
+                                .foregroundStyle(LiquidGlassStyle.textSecondary)
+                            Text("Apple PMU firmware exposes 24 discrete die sensors (tdie) without core/cluster attribution on this machine. To avoid fabricating data, cluster averages are shown as Unavailable while verified die aggregates (Peak & Mean) remain active above.")
+                                .font(.system(size: 10))
+                                .foregroundStyle(LiquidGlassStyle.textSecondary)
+                        }
+                        .padding(.top, 4)
+                    }
+                }
+            }
+        }
+    }
+
+    private func clusterTile(
+        measurement: ClusterMeasurement,
+        title: String,
+        icon: String,
+        accent: Color
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(accent)
+                Text(title)
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .tracking(0.8)
+                    .foregroundStyle(LiquidGlassStyle.textSecondary)
+                Spacer()
+                Text("\(measurement.sensorCount) sensors")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(LiquidGlassStyle.textSecondary)
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(measurement.formattedAverage)
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundStyle(measurement.isAvailable ? accent : LiquidGlassStyle.textSecondary)
+
+                if let peak = measurement.peakC {
+                    Text("· Peak: \(String(format: "%.1f°C", peak))")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(LiquidGlassStyle.textSecondary)
+                }
+            }
+
+            Text(measurement.note)
+                .font(.system(size: 10))
+                .foregroundStyle(LiquidGlassStyle.textSecondary)
+                .lineLimit(1)
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+    }
+}
+

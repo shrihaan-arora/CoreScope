@@ -17,6 +17,9 @@ final class ThermalSessionModel: ObservableObject {
     @Published private(set) var isSamplingInProgress: Bool = false
     @Published var exportMessage: String? = nil
 
+    /// Lifecycle-managed thermal pressure monitor observing NotificationCenter events.
+    let thermalPressureMonitor: ThermalPressureMonitor
+
     private var sessionStartTime: Date?
     private var sessionTask: Task<Void, Never>?
     private var tickerTask: Task<Void, Never>?
@@ -24,7 +27,8 @@ final class ThermalSessionModel: ObservableObject {
     // Probe provider (defaults to SensorProbe().read for production)
     private let sampleProvider: @Sendable () -> SensorSnapshot
 
-    init(sampleProvider: (@Sendable () -> SensorSnapshot)? = nil) {
+    init(sampleProvider: (@Sendable () -> SensorSnapshot)? = nil, thermalPressureMonitor: ThermalPressureMonitor? = nil) {
+        self.thermalPressureMonitor = thermalPressureMonitor ?? ThermalPressureMonitor()
         if let provider = sampleProvider {
             self.sampleProvider = provider
         } else {
@@ -54,10 +58,13 @@ final class ThermalSessionModel: ObservableObject {
         self.sessionStartTime = startTime
         self.state = .running
 
-        // 2. Start ticker for smooth UI progress
+        // 2. Start thermal pressure event tracking
+        thermalPressureMonitor.startMonitoring(sessionStartTime: startTime)
+
+        // 3. Start ticker for smooth UI progress
         startTicker(startTime: startTime)
 
-        // 3. Collect sample 0 immediately, then schedule every 2.0 seconds
+        // 4. Collect sample 0 immediately, then schedule every 2.0 seconds
         let targetDuration = selectedDuration.seconds
         let interval = Self.samplingInterval
 
@@ -102,6 +109,8 @@ final class ThermalSessionModel: ObservableObject {
         tickerTask?.cancel()
         tickerTask = nil
 
+        thermalPressureMonitor.stopMonitoring()
+
         state = .completed
         isSamplingInProgress = false
         remainingSeconds = 0.0
@@ -118,6 +127,7 @@ final class ThermalSessionModel: ObservableObject {
         elapsedSeconds = 0.0
         remainingSeconds = nil
         exportMessage = nil
+        thermalPressureMonitor.resetTransitions()
         state = .idle
     }
 
@@ -127,6 +137,8 @@ final class ThermalSessionModel: ObservableObject {
         sessionTask = nil
         tickerTask?.cancel()
         tickerTask = nil
+        thermalPressureMonitor.stopMonitoring()
+        thermalPressureMonitor.resetTransitions()
         state = .idle
         samples.removeAll()
         lastSummary = nil

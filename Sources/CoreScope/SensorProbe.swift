@@ -26,6 +26,50 @@ struct SensorSnapshot: Sendable {
     /// When this snapshot was collected.
     let sampledAt: Date
 
+    /// Sensor registry with verified cluster mappings and descriptor metadata.
+    let sensorRegistry: SensorRegistry
+    /// Typed thermal pressure state.
+    let thermalPressure: ThermalPressureState
+    /// Direct clock frequency and residency telemetry probe result.
+    let clockTelemetry: ClockTelemetryResult
+    /// Evaluated thermal throttling assessment separating pressure from clock reduction.
+    let throttlingAssessment: ThrottlingAssessment
+
+    init(
+        temperatureReadings: [TemperatureReading],
+        temperatureStatus: TemperatureStatus,
+        powerMode: PowerMode,
+        batteryPercent: Int?,
+        isCharging: Bool?,
+        isAdapterConnected: Bool?,
+        thermalState: String,
+        sampledAt: Date,
+        sensorRegistry: SensorRegistry? = nil,
+        thermalPressure: ThermalPressureState? = nil,
+        clockTelemetry: ClockTelemetryResult? = nil,
+        throttlingAssessment: ThrottlingAssessment? = nil
+    ) {
+        self.temperatureReadings = temperatureReadings
+        self.temperatureStatus = temperatureStatus
+        self.powerMode = powerMode
+        self.batteryPercent = batteryPercent
+        self.isCharging = isCharging
+        self.isAdapterConnected = isAdapterConnected
+        self.thermalState = thermalState
+        self.sampledAt = sampledAt
+
+        let reg = sensorRegistry ?? SensorRegistry.build(from: temperatureReadings)
+        self.sensorRegistry = reg
+
+        let tp = thermalPressure ?? (ThermalPressureState(rawValue: thermalState) ?? .nominal)
+        self.thermalPressure = tp
+
+        let clock = clockTelemetry ?? .unavailable(reason: "Clock telemetry not probed for snapshot")
+        self.clockTelemetry = clock
+
+        self.throttlingAssessment = throttlingAssessment ?? ThrottlingAssessment.evaluate(thermalPressure: tp, clockTelemetry: clock)
+    }
+
     /// Operating temperature summary isolating die sensors and excluding calibration channels.
     var temperatureSummary: TemperatureSummary {
         TemperatureSummary(readings: temperatureReadings)
@@ -101,7 +145,18 @@ struct SensorProbe: Sendable {
         let power = PowerSourceReader.read()
 
         // 3. Thermal pressure
-        let thermal = Self.thermalStateLabel(ProcessInfo.processInfo.thermalState)
+        let nativeThermal = ProcessInfo.processInfo.thermalState
+        let thermalPressureState = ThermalPressureState.from(nativeState: nativeThermal)
+        let thermal = thermalPressureState.rawValue
+
+        // 4. Sensor Registry
+        let registry = SensorRegistry.build(from: readings)
+
+        // 5. Clock Telemetry
+        let clockResult = ClockTelemetryProbe.probe()
+
+        // 6. Throttling Assessment
+        let assessment = ThrottlingAssessment.evaluate(thermalPressure: thermalPressureState, clockTelemetry: clockResult)
 
         return SensorSnapshot(
             temperatureReadings: readings,
@@ -111,18 +166,16 @@ struct SensorProbe: Sendable {
             isCharging: power.isCharging,
             isAdapterConnected: power.isAdapterConnected,
             thermalState: thermal,
-            sampledAt: Date()
+            sampledAt: Date(),
+            sensorRegistry: registry,
+            thermalPressure: thermalPressureState,
+            clockTelemetry: clockResult,
+            throttlingAssessment: assessment
         )
     }
 
     private static func thermalStateLabel(_ state: ProcessInfo.ThermalState) -> String {
-        switch state {
-        case .nominal:  "Nominal"
-        case .fair:     "Fair"
-        case .serious:  "Serious"
-        case .critical: "Critical"
-        @unknown default: "Unknown"
-        }
+        ThermalPressureState.from(nativeState: state).rawValue
     }
 }
 

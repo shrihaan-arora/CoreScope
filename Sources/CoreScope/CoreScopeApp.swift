@@ -22,6 +22,16 @@ struct CoreScopeApp: App {
                 print("Battery: None / Not applicable")
             }
             print("Thermal State: \(snapshot.thermalState)")
+            print("Thermal Pressure: \(snapshot.thermalPressure.title) (\(snapshot.thermalPressure.explanation))")
+            print("Throttling Assessment: \(snapshot.throttlingAssessment.inference.rawValue)")
+            print("  - Summary: \(snapshot.throttlingAssessment.assessmentSummary)")
+            print("Clock Frequency Telemetry: \(snapshot.clockTelemetry.reason)")
+            if case .measured(let tel) = snapshot.clockTelemetry {
+                if let p = tel.pCoreFrequencyMHz { print("  - P-Core Frequency: \(Int(p)) MHz") }
+                if let e = tel.eCoreFrequencyMHz { print("  - E-Core Frequency: \(Int(e)) MHz") }
+            }
+            print("Cluster Domain Registry: \(snapshot.sensorRegistry.hasVerifiedClusterMappings ? "Verified Mappings" : "Generic PMU Descriptors (M4)")")
+            print("  - Unmapped Die Channels: \(snapshot.sensorRegistry.unmappedCount)")
             print("Temperature Status: \(snapshot.temperatureStatus.explanation)")
             let summary = snapshot.temperatureSummary
             if let peak = summary.peakDieReading {

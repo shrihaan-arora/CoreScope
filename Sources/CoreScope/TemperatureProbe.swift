@@ -49,7 +49,7 @@ struct TemperatureReading: Identifiable, Sendable, Equatable {
         if lower.contains("tcal") {
             // Calibration/reference channels (e.g. tcal) are isolated from operating die sensors
             return .calibration
-        } else if lower.contains("tdie") {
+        } else if lower.contains("tdie") || lower.contains("pdie") || lower.contains("edie") || lower.contains("gdie") || lower.contains("die") || lower.contains("p-core") || lower.contains("e-core") || lower.contains("gpu-core") {
             return .siliconDie
         } else if lower.contains("tdev") {
             return .deviceNode

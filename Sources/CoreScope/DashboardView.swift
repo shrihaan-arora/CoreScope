@@ -242,6 +242,8 @@ struct DashboardView: View {
     private var overviewSection: some View {
         VStack(alignment: .leading, spacing: 20) {
             thermalOverview
+            ThermalPressurePerformanceCard(snapshot: model.snapshot)
+            ThermalDomainsSection(snapshot: model.snapshot)
             powerAndBatteryPanel
             diagnosticsSection
         }
@@ -525,7 +527,9 @@ struct DiagnosticsSection: View {
                         diagRow(label: "Operating System", value: SystemInfo.osVersion)
                         diagRow(label: "Thermal Protocol", value: "IOHIDEventSystemClient (0xFF00:5)")
                         diagRow(label: "Power Protocol", value: "IOPowerSources (IOKit.ps)")
-                        diagRow(label: "Sensor Outcome", value: snapshot?.temperatureStatus.explanation ?? "Awaiting scan")
+                        diagRow(label: "Thermal Pressure", value: snapshot?.thermalPressure.title ?? "Nominal")
+                        diagRow(label: "Clock Telemetry", value: snapshot?.clockTelemetry.reason ?? "Awaiting scan")
+                        diagRow(label: "Cluster Domains", value: snapshot?.sensorRegistry.hasVerifiedClusterMappings == true ? "Verified Mappings" : "Generic PMU Descriptors (M4)")
                         diagRow(label: "Resource Policy", value: "Stateless on-demand scan; client released on exit")
                     }
                     .padding(.top, 4)
