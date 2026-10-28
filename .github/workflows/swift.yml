@@ -1,7 +1,4 @@
-# This workflow will build a Swift project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-swift
-
-name: Swift
+name: Swift CI
 
 on:
   push:
@@ -10,13 +7,29 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
-
+  build-and-test:
+    name: Build & Deterministic Tests
     runs-on: macos-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Build
+    - name: Check out repository
+      uses: actions/checkout@v4
+
+    - name: Verify zero external SwiftPM dependencies
+      run: |
+        grep -F 'dependencies: []' Package.swift || {
+          echo "ERROR: CoreScope must have zero external dependencies." >&2
+          exit 1
+        }
+
+    - name: Build CoreScope (Debug)
       run: swift build -v
-    - name: Run tests
+
+    - name: Build CoreScope (Release)
+      run: swift build -c release -v
+
+    - name: Run Deterministic Unit Tests
       run: swift test -v
+
+    - name: Verify Standalone Packaging Script
+      run: ./scripts/package-app.sh

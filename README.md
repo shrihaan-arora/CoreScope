@@ -142,11 +142,28 @@ The script automatically enforces hardened runtime (`--options runtime`), submit
 
 ## Automated Testing
 
-Execute the test suite (**24 automated tests** covering sensor categorization invariants, summary math, power parsing, safe asset loading, live hardware probes, thermal session lifecycle, duration auto-termination, overlapping scan prevention, statistics calculation, and RFC 4180 CSV escaping):
+CoreScope separates deterministic unit tests from physical hardware integration tests. Virtualized CI environments (such as GitHub Actions `macos-latest` runners) lack physical Apple Silicon PMU hardware and do not emulate the private HID thermal usage page (`0xFF00:0x05`). Therefore, live sensor probes are gated behind an opt-in environment variable.
+
+### 1. Standard Deterministic Test Suite (Developers & CI)
+
+Runs all deterministic unit tests (sensor classification, count conservation, summary mathematics, missing-category handling, power-source parsing, safe asset loading, Thermal Session lifecycle, duration auto-termination, overlapping scan prevention, statistics calculations, and RFC 4180 CSV escaping) without requiring physical hardware:
 
 ```sh
 swift test
 ```
+
+*Note*: Live sensor tests are automatically skipped in this mode with an explicit explanation:
+`➜ Test testSensorProbeSnapshotLive() skipped: "Requires physical Apple Silicon PMU sensor access (set CORESCOPE_REQUIRE_LIVE_SENSORS=1)"`
+
+### 2. Physical Hardware Integration Suite (Apple Silicon Host)
+
+When running on physical Apple Silicon hardware (such as an Apple M4 MacBook Air), enable the live sensor suite to test real PMU node enumeration, live temperature ranges, channel exclusivity, and M4 baseline channel verification:
+
+```sh
+CORESCOPE_REQUIRE_LIVE_SENSORS=1 swift test
+```
+
+When `CORESCOPE_REQUIRE_LIVE_SENSORS=1` is specified, missing sensor data produces a genuine test failure.
 
 ---
 
