@@ -665,7 +665,7 @@ struct ThermalPressurePerformanceCard: View {
             thermalPressure: .nominal,
             clockTelemetry: .unavailable(reason: "No active scan"),
             inference: .normalOperation,
-            assessmentSummary: "Awaiting hardware snapshot."
+            assessmentSummary: "macOS reports nominal thermal pressure."
         )
 
         GlassCard(cornerRadius: 18, padding: 18) {
@@ -715,7 +715,7 @@ struct ThermalPressurePerformanceCard: View {
                             .font(.system(size: 15, weight: .bold, design: .rounded))
                             .foregroundStyle(inferenceColor(assessment.inference))
 
-                        Text(assessment.inference.explanation)
+                        Text(assessment.assessmentSummary)
                             .font(.system(size: 11))
                             .foregroundStyle(LiquidGlassStyle.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)

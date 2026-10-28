@@ -64,9 +64,9 @@ struct ClockTelemetry: Sendable, Equatable {
 
 /// Cautious, rule-based inference separating thermal pressure from confirmed throttling.
 enum PerformanceReductionInference: String, CaseIterable, Identifiable, Sendable {
-    /// Thermal pressure is Nominal. System operating without thermal constraints.
+    /// Thermal pressure is Nominal ("macOS reports nominal thermal pressure.").
     case normalOperation = "Normal Operation"
-    /// Thermal pressure is Fair (elevated). Scheduler is load-balancing, but no hardware throttling is proven.
+    /// Thermal pressure is Fair ("macOS reports elevated thermal pressure."). Scheduler is load-balancing, but no hardware throttling is proven.
     case thermalPressureElevated = "Thermal Pressure Elevated"
     /// Thermal pressure is Serious/Critical. Thermal pacing or power limits likely active.
     case possibleThermalReduction = "Possible Thermal Reduction"
@@ -80,16 +80,32 @@ enum PerformanceReductionInference: String, CaseIterable, Identifiable, Sendable
     var explanation: String {
         switch self {
         case .normalOperation:
-            return "Normal thermal and power conditions. Processor operating without thermal performance constraints."
+            return "macOS reports nominal thermal pressure."
         case .thermalPressureElevated:
-            return "Thermal pressure is elevated (Fair). The macOS kernel may adjust power targets, but ordinary DVFS scaling must not be confused with hardware throttling."
+            return "macOS reports elevated thermal pressure."
         case .possibleThermalReduction:
-            return "Thermal pressure is high or critical. macOS power pacing is active to protect hardware limits; compute throughput reduction is likely."
+            return "macOS reports serious or critical thermal pressure; performance may be affected."
         case .confirmedThermalThrottling:
-            return "Validated hardware telemetry confirms clock frequency clamped below nominal operating levels under thermal stress."
+            return "Validated telemetry confirms clock frequency reduction relative to a verified baseline under sustained load and elevated thermal pressure."
         case .insufficientTelemetry:
-            return "Direct processor clock telemetry is uncalibrated or unavailable in unprivileged user space; throttling cannot be conclusively proven."
+            return "Thermal state unavailable or clock telemetry uncalibrated."
         }
+    }
+}
+
+// MARK: - Hardware Clock Reference
+
+/// Defensible hardware reference parameters for evaluating whether an observed frequency reduction
+/// constitutes confirmed thermal throttling rather than normal DVFS, Low Power Mode, or idle states.
+struct HardwareClockReference: Sendable, Equatable {
+    /// Nominal maximum active frequency for the target cluster (MHz) under full sustained workload.
+    let nominalActiveFrequencyMHz: Double
+    /// Threshold ratio below nominal active frequency (e.g. 0.65 = 35% reduction) required to indicate thermal limitation.
+    let throttlingRatioThreshold: Double
+
+    init(nominalActiveFrequencyMHz: Double, throttlingRatioThreshold: Double = 0.65) {
+        self.nominalActiveFrequencyMHz = nominalActiveFrequencyMHz
+        self.throttlingRatioThreshold = throttlingRatioThreshold
     }
 }
 
@@ -120,15 +136,18 @@ struct ThrottlingAssessment: Sendable, Equatable {
     /// Evaluates current hardware telemetry and applies conservative inference rules.
     ///
     /// Rules:
-    /// - Nominal thermal pressure -> Normal Operation
-    /// - Fair thermal pressure without frequency proof -> Thermal Pressure Elevated (NOT throttling)
-    /// - Serious or Critical thermal pressure -> Possible Thermal Reduction
-    /// - Only if verified frequency drops below baseline under high load -> Confirmed Throttling
-    /// - Uncalibrated frequency -> Insufficient Telemetry when not Serious/Critical
+    /// - Nominal thermal pressure -> Normal Operation ("macOS reports nominal thermal pressure.")
+    /// - Fair thermal pressure alone -> Thermal Pressure Elevated ("macOS reports elevated thermal pressure.")
+    /// - Serious or Critical thermal pressure -> Possible Thermal Reduction ("macOS reports serious/critical thermal pressure; performance may be affected.")
+    /// - Confirmed Throttling ONLY when validated telemetry confirms frequency reduction relative to a defensible hardware baseline under sustained load while not in Low Power Mode.
+    /// - Unknown thermal pressure -> Insufficient Telemetry ("Thermal state unavailable.")
     static func evaluate(
         thermalPressure: ThermalPressureState,
         clockTelemetry: ClockTelemetryResult,
-        isUnderSustainedLoad: Bool = false
+        reference: HardwareClockReference? = nil,
+        isUnderSustainedLoad: Bool = false,
+        powerMode: PowerMode = .unknown,
+        isLowPowerModeActive: Bool = false
     ) -> ThrottlingAssessment {
         let inference: PerformanceReductionInference
         let summary: String
@@ -136,36 +155,44 @@ struct ThrottlingAssessment: Sendable, Equatable {
         switch thermalPressure {
         case .nominal:
             inference = .normalOperation
-            summary = "Thermal state nominal. All clusters operating within designed thermal envelope."
+            summary = "macOS reports nominal thermal pressure."
 
         case .fair:
-            // Crucial rule: Never label "CPU throttling detected" merely because thermal state is Fair
+            // Fair thermal pressure alone does not establish confirmed throttling
             inference = .thermalPressureElevated
-            summary = "Thermal pressure elevated (Fair). macOS scheduler is balancing power. Workload changes or normal DVFS scaling should not be treated as throttling."
+            summary = "macOS reports elevated thermal pressure."
 
         case .serious:
-            if case .measured(let tel) = clockTelemetry,
-               let pFreq = tel.pCoreFrequencyMHz, pFreq < 1200.0, isUnderSustainedLoad {
+            if let ref = reference,
+               isUnderSustainedLoad,
+               !isLowPowerModeActive,
+               case .measured(let tel) = clockTelemetry,
+               let pFreq = tel.pCoreFrequencyMHz,
+               pFreq < (ref.nominalActiveFrequencyMHz * ref.throttlingRatioThreshold) {
                 inference = .confirmedThermalThrottling
-                summary = "Validated clock frequency clamped to \(Int(pFreq)) MHz under sustained load with Serious thermal pressure."
+                summary = "Validated telemetry confirms clock frequency reduced to \(Int(pFreq)) MHz from \(Int(ref.nominalActiveFrequencyMHz)) MHz baseline under sustained load."
             } else {
                 inference = .possibleThermalReduction
-                summary = "Thermal pressure is Serious. The operating system is pacing workload execution to constrain package temperature."
+                summary = "macOS reports serious thermal pressure; performance may be affected."
             }
 
         case .critical:
-            if case .measured(let tel) = clockTelemetry,
-               let pFreq = tel.pCoreFrequencyMHz, pFreq < 1000.0, isUnderSustainedLoad {
+            if let ref = reference,
+               isUnderSustainedLoad,
+               !isLowPowerModeActive,
+               case .measured(let tel) = clockTelemetry,
+               let pFreq = tel.pCoreFrequencyMHz,
+               pFreq < (ref.nominalActiveFrequencyMHz * ref.throttlingRatioThreshold) {
                 inference = .confirmedThermalThrottling
-                summary = "Validated clock frequency clamped to \(Int(pFreq)) MHz under Critical thermal pressure."
+                summary = "Validated telemetry confirms clock frequency reduced to \(Int(pFreq)) MHz from \(Int(ref.nominalActiveFrequencyMHz)) MHz baseline under sustained load."
             } else {
                 inference = .possibleThermalReduction
-                summary = "Thermal pressure is Critical. Immediate thermal mitigation and power clamping engaged by system firmware."
+                summary = "macOS reports critical thermal pressure; performance may be affected."
             }
 
         case .unknown:
             inference = .insufficientTelemetry
-            summary = "Thermal state and clock telemetry unavailable from host system."
+            summary = "Thermal state unavailable."
         }
 
         return ThrottlingAssessment(

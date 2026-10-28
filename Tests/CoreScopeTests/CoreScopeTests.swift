@@ -714,9 +714,16 @@ private func makeMockSnapshot(
     #expect(ThermalPressureState.critical.isThrottlingLikely)
 
     #expect(ThermalPressureState.nominal.title == "Nominal")
-    #expect(ThermalPressureState.fair.title == "Elevated (Fair)")
-    #expect(ThermalPressureState.serious.title == "High Pressure (Serious)")
-    #expect(ThermalPressureState.critical.title == "Critical Pressure")
+    #expect(ThermalPressureState.fair.title == "Fair")
+    #expect(ThermalPressureState.serious.title == "Serious")
+    #expect(ThermalPressureState.critical.title == "Critical")
+    #expect(ThermalPressureState.unknown.title == "Unknown")
+
+    #expect(ThermalPressureState.nominal.explanation == "macOS reports nominal thermal pressure.")
+    #expect(ThermalPressureState.fair.explanation == "macOS reports elevated thermal pressure.")
+    #expect(ThermalPressureState.serious.explanation == "macOS reports serious thermal pressure; performance may be affected.")
+    #expect(ThermalPressureState.critical.explanation == "macOS reports critical thermal pressure; performance may be affected.")
+    #expect(ThermalPressureState.unknown.explanation == "Thermal state unavailable.")
 }
 
 @Test func testThermalPressureMonitorLifecycle() async throws {
@@ -754,7 +761,7 @@ private func makeMockSnapshot(
 }
 
 @Test func testPerformanceReductionInferenceRulesAndDVFSProtection() throws {
-    // 1. False-Positive Prevention: Nominal thermal state with lower frequency (e.g. 800 MHz DVFS stepdown)
+    // 1. Nominal pressure: does not claim confirmed throttling even with low frequency (normal DVFS / idle scaling)
     let idleTelemetry = ClockTelemetryResult.measured(ClockTelemetry(
         pCoreFrequencyMHz: 800.0,
         eCoreFrequencyMHz: 600.0
@@ -764,45 +771,113 @@ private func makeMockSnapshot(
         clockTelemetry: idleTelemetry,
         isUnderSustainedLoad: false
     )
-    #expect(evalNominal.inference == .normalOperation, "Lower frequency during Nominal state is normal DVFS/idle, NOT throttling!")
-    #expect(!evalNominal.assessmentSummary.contains("throttling"))
+    #expect(evalNominal.inference == .normalOperation)
+    #expect(evalNominal.assessmentSummary == "macOS reports nominal thermal pressure.")
 
-    // 2. Fair thermal pressure with unavailable clock telemetry:
-    // Must NOT claim "CPU throttling detected"
-    let evalFair = ThrottlingAssessment.evaluate(
-        thermalPressure: .fair,
-        clockTelemetry: .unavailable(reason: "Unprivileged user space")
-    )
-    #expect(evalFair.inference == .thermalPressureElevated)
-    #expect(evalFair.assessmentSummary.contains("elevated"))
-    #expect(!evalFair.assessmentSummary.contains("Confirmed"))
-
-    // 3. Serious thermal pressure with unavailable clock telemetry:
-    // Cautious inference "Possible Thermal Reduction"
-    let evalSerious = ThrottlingAssessment.evaluate(
-        thermalPressure: .serious,
-        clockTelemetry: .unavailable(reason: "Unprivileged user space")
-    )
-    #expect(evalSerious.inference == .possibleThermalReduction)
-
-    // 4. Critical thermal pressure with confirmed clock frequency clamped under load:
-    let clampedTelemetry = ClockTelemetryResult.measured(ClockTelemetry(
-        pCoreFrequencyMHz: 950.0,
-        eCoreFrequencyMHz: 600.0
-    ))
-    let evalCriticalClamped = ThrottlingAssessment.evaluate(
-        thermalPressure: .critical,
-        clockTelemetry: clampedTelemetry,
-        isUnderSustainedLoad: true
-    )
-    #expect(evalCriticalClamped.inference == .confirmedThermalThrottling)
-
-    // 5. Nominal thermal pressure with unavailable telemetry:
     let evalNominalUnavailable = ThrottlingAssessment.evaluate(
         thermalPressure: .nominal,
         clockTelemetry: .unavailable(reason: "No legend")
     )
     #expect(evalNominalUnavailable.inference == .normalOperation)
+    #expect(evalNominalUnavailable.assessmentSummary == "macOS reports nominal thermal pressure.")
+
+    // 2. Fair pressure alone: does not claim throttling
+    let evalFair = ThrottlingAssessment.evaluate(
+        thermalPressure: .fair,
+        clockTelemetry: .unavailable(reason: "Unprivileged user space")
+    )
+    #expect(evalFair.inference == .thermalPressureElevated)
+    #expect(evalFair.assessmentSummary == "macOS reports elevated thermal pressure.")
+
+    // 3. Serious pressure: produces possible-reduction warning without claiming direct frequency confirmation
+    let evalSerious = ThrottlingAssessment.evaluate(
+        thermalPressure: .serious,
+        clockTelemetry: .unavailable(reason: "Unprivileged user space")
+    )
+    #expect(evalSerious.inference == .possibleThermalReduction)
+    #expect(evalSerious.assessmentSummary == "macOS reports serious thermal pressure; performance may be affected.")
+
+    // 4. Critical pressure: produces possible-reduction warning without claiming direct frequency confirmation
+    let evalCritical = ThrottlingAssessment.evaluate(
+        thermalPressure: .critical,
+        clockTelemetry: .unavailable(reason: "Unprivileged user space")
+    )
+    #expect(evalCritical.inference == .possibleThermalReduction)
+    #expect(evalCritical.assessmentSummary == "macOS reports critical thermal pressure; performance may be affected.")
+
+    // 5. Missing clock telemetry never produces confirmed throttling
+    let evalCriticalMissingTelemetry = ThrottlingAssessment.evaluate(
+        thermalPressure: .critical,
+        clockTelemetry: .unavailable(reason: "Missing symbols"),
+        isUnderSustainedLoad: true
+    )
+    #expect(evalCriticalMissingTelemetry.inference == .possibleThermalReduction)
+    #expect(evalCriticalMissingTelemetry.inference != .confirmedThermalThrottling)
+
+    // 6. Uncalibrated values never enter the frequency-based confirmation path
+    let evalUncalibrated = ThrottlingAssessment.evaluate(
+        thermalPressure: .critical,
+        clockTelemetry: .unavailable(reason: "CLPC driver legend table not accessible"),
+        reference: HardwareClockReference(nominalActiveFrequencyMHz: 4000.0),
+        isUnderSustainedLoad: true
+    )
+    #expect(evalUncalibrated.inference == .possibleThermalReduction)
+    #expect(evalUncalibrated.inference != .confirmedThermalThrottling)
+
+    // 7. A confirmation path requires validated telemetry, a defensible reference, sustained load, and non-LPM
+    let ref = HardwareClockReference(nominalActiveFrequencyMHz: 4000.0, throttlingRatioThreshold: 0.65)
+    let clampedTel = ClockTelemetryResult.measured(ClockTelemetry(
+        pCoreFrequencyMHz: 1400.0,
+        eCoreFrequencyMHz: 800.0
+    ))
+
+    // 7a. Confirmed: all conditions satisfied
+    let evalConfirmed = ThrottlingAssessment.evaluate(
+        thermalPressure: .serious,
+        clockTelemetry: clampedTel,
+        reference: ref,
+        isUnderSustainedLoad: true,
+        powerMode: .external,
+        isLowPowerModeActive: false
+    )
+    #expect(evalConfirmed.inference == .confirmedThermalThrottling)
+    #expect(evalConfirmed.assessmentSummary.contains("Validated telemetry confirms clock frequency reduced"))
+
+    // 7b. Without reference: falls back to possible thermal reduction
+    let evalNoRef = ThrottlingAssessment.evaluate(
+        thermalPressure: .serious,
+        clockTelemetry: clampedTel,
+        reference: nil,
+        isUnderSustainedLoad: true
+    )
+    #expect(evalNoRef.inference == .possibleThermalReduction)
+
+    // 7c. Not sustained load: falls back to possible thermal reduction
+    let evalNotSustained = ThrottlingAssessment.evaluate(
+        thermalPressure: .serious,
+        clockTelemetry: clampedTel,
+        reference: ref,
+        isUnderSustainedLoad: false
+    )
+    #expect(evalNotSustained.inference == .possibleThermalReduction)
+
+    // 7d. Low Power Mode active: falls back to possible thermal reduction (could be power policy, not thermal limitation)
+    let evalLPM = ThrottlingAssessment.evaluate(
+        thermalPressure: .serious,
+        clockTelemetry: clampedTel,
+        reference: ref,
+        isUnderSustainedLoad: true,
+        isLowPowerModeActive: true
+    )
+    #expect(evalLPM.inference == .possibleThermalReduction)
+
+    // 8. Unknown thermal state reports unavailable
+    let evalUnknown = ThrottlingAssessment.evaluate(
+        thermalPressure: .unknown,
+        clockTelemetry: .unavailable(reason: "Unavailable")
+    )
+    #expect(evalUnknown.inference == .insufficientTelemetry)
+    #expect(evalUnknown.assessmentSummary == "Thermal state unavailable.")
 }
 
 @Test func testThermalSessionCSVExporterExtendedHeadersAndFallbacks() throws {

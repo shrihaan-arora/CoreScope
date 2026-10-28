@@ -27,9 +27,9 @@ enum ThermalPressureState: String, CaseIterable, Identifiable, Sendable, Compara
     var title: String {
         switch self {
         case .nominal:  return "Nominal"
-        case .fair:     return "Elevated (Fair)"
-        case .serious:  return "High Pressure (Serious)"
-        case .critical: return "Critical Pressure"
+        case .fair:     return "Fair"
+        case .serious:  return "Serious"
+        case .critical: return "Critical"
         case .unknown:  return "Unknown"
         }
     }
@@ -38,15 +38,15 @@ enum ThermalPressureState: String, CaseIterable, Identifiable, Sendable, Compara
     var explanation: String {
         switch self {
         case .nominal:
-            return "Operating within normal thermal parameters. All active compute clusters running without thermal constraint."
+            return "macOS reports nominal thermal pressure."
         case .fair:
-            return "Thermal pressure elevated. macOS scheduler initiates power-balancing, but CPU/GPU clock reductions may not yet be active."
+            return "macOS reports elevated thermal pressure."
         case .serious:
-            return "Substantial thermal pressure. Workload pacing and processor power limits engaged to stabilize temperatures."
+            return "macOS reports serious thermal pressure; performance may be affected."
         case .critical:
-            return "Severe thermal pressure. Maximum hardware throttling and thermal mitigation measures active."
+            return "macOS reports critical thermal pressure; performance may be affected."
         case .unknown:
-            return "Thermal state unavailable from host operating system."
+            return "Thermal state unavailable."
         }
     }
 
@@ -72,9 +72,19 @@ enum ThermalPressureState: String, CaseIterable, Identifiable, Sendable, Compara
         }
     }
 
-    /// Whether thermal pressure is severe enough that hardware clock reduction is likely.
-    var isThrottlingLikely: Bool {
+    /// Whether thermal pressure is elevated to Serious or Critical where performance may be affected.
+    var isPerformanceLikelyAffected: Bool {
         self == .serious || self == .critical
+    }
+
+    /// Whether thermal pressure is elevated beyond nominal (Fair, Serious, or Critical).
+    var isWarningActive: Bool {
+        self == .fair || self == .serious || self == .critical
+    }
+
+    /// Preserved for backwards compatibility with session statistics.
+    var isThrottlingLikely: Bool {
+        isPerformanceLikelyAffected
     }
 
     static func < (lhs: ThermalPressureState, rhs: ThermalPressureState) -> Bool {

@@ -67,7 +67,12 @@ struct SensorSnapshot: Sendable {
         let clock = clockTelemetry ?? .unavailable(reason: "Clock telemetry not probed for snapshot")
         self.clockTelemetry = clock
 
-        self.throttlingAssessment = throttlingAssessment ?? ThrottlingAssessment.evaluate(thermalPressure: tp, clockTelemetry: clock)
+        self.throttlingAssessment = throttlingAssessment ?? ThrottlingAssessment.evaluate(
+            thermalPressure: tp,
+            clockTelemetry: clock,
+            powerMode: powerMode,
+            isLowPowerModeActive: ProcessInfo.processInfo.isLowPowerModeEnabled
+        )
     }
 
     /// Operating temperature summary isolating die sensors and excluding calibration channels.
@@ -156,7 +161,12 @@ struct SensorProbe: Sendable {
         let clockResult = ClockTelemetryProbe.probe()
 
         // 6. Throttling Assessment
-        let assessment = ThrottlingAssessment.evaluate(thermalPressure: thermalPressureState, clockTelemetry: clockResult)
+        let assessment = ThrottlingAssessment.evaluate(
+            thermalPressure: thermalPressureState,
+            clockTelemetry: clockResult,
+            powerMode: power.mode,
+            isLowPowerModeActive: ProcessInfo.processInfo.isLowPowerModeEnabled
+        )
 
         return SensorSnapshot(
             temperatureReadings: readings,
