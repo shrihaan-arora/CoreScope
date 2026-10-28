@@ -51,9 +51,19 @@ A native, on-demand hardware observability dashboard designed specifically for A
 ## Requirements
 
 - **Target Hardware**: Apple Silicon Mac (M1, M2, M3, M4 series). Tested on Apple MacBook Air (`Mac16,13`, Apple M4).
-- **Operating System**: macOS 13.0 (Ventura) or later.
+- **Operating System**: macOS 13.0 (Ventura) or later (compatible with macOS 13 Ventura, macOS 14 Sonoma, and macOS 15 Sequoia).
 - **Development Toolchain**: Xcode 15+ or Swift 6.0+ toolchain.
 - **Offline Integrity**: Zero external package dependencies (`dependencies: []`). Builds completely offline.
+
+---
+
+## Release Status & Distribution Architecture
+
+CoreScope strictly distinguishes between its publication channels:
+
+1. **Public Source Repository (Available)**: The complete, dependency-free Swift codebase is publicly available on [GitHub](https://github.com/shrihaan-arora/CoreScope.git). Developers can clone and run it directly with `swift run CoreScope` on any Apple Silicon Mac running macOS 13.0+.
+2. **Local Standalone Application Bundle (Tested Candidate)**: The local packaging script (`./scripts/package-app.sh`) compiles and bundles `CoreScope.app` with an **ad-hoc signature** (`codesign --sign -`) strictly for local execution, testing, and acceptance on the build machine.
+3. **Public Binary Distribution (Outstanding Prerequisite)**: An official precompiled binary release for distribution to external Mac users is **not yet available**. Ordinary public distribution across macOS systems requires valid Apple Developer ID signing and Apple Gatekeeper notarization via `scripts/notarize-app.sh`. Notarization is an **outstanding requirement** that must be performed by the maintainer using their Apple Developer credentials before distributing precompiled binaries. The current application archive is ad-hoc signed and has not been Developer ID signed or notarized.
 
 ---
 
