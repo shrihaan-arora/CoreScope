@@ -50,7 +50,7 @@ echo "======================================================================"
 
 # 3. Clean previous build artifacts
 echo "==> Cleaning destination directory: ${OUTPUT_DIR}"
-rm -rf "${BUNDLE_DIR}" "${ZIP_PATH}"
+rm -rf "${BUNDLE_DIR}" "${ZIP_PATH}" "${OUTPUT_DIR}/AppIcon.icns" "${OUTPUT_DIR}"/*.iconset
 mkdir -p "${MACOS_DIR}" "${RESOURCES_DIR}"
 
 # 4. Build in Release configuration with Swift Package Manager
@@ -80,6 +80,8 @@ if [[ -n "${ICON_PATH}" && -f "${ICON_PATH}" ]]; then
     echo "==> Using explicit icon provided at ${ICON_PATH}..."
     cp "${ICON_PATH}" "${RESOURCES_DIR}/AppIcon.icns"
     ICON_PLIST_ENTRY="    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconName</key>
     <string>AppIcon</string>"
 elif [[ -f "${ICON_SRC}" ]]; then
     echo "==> Found source icon artwork at ${ICON_SRC}."
@@ -122,12 +124,16 @@ elif [[ -f "${ICON_SRC}" ]]; then
     rm -rf "${ICONSET_DIR}"
 
     ICON_PLIST_ENTRY="    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconName</key>
     <string>AppIcon</string>"
     echo "==> AppIcon.icns created and bundled into ${RESOURCES_DIR}/AppIcon.icns"
 elif [[ -f "${REPO_ROOT}/Resources/AppIcon.icns" ]]; then
     echo "==> Found existing icon at Resources/AppIcon.icns. Copying..."
     cp "${REPO_ROOT}/Resources/AppIcon.icns" "${RESOURCES_DIR}/AppIcon.icns"
     ICON_PLIST_ENTRY="    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconName</key>
     <string>AppIcon</string>"
 else
     echo "==> No icon asset found. Omitting CFBundleIconFile entry."

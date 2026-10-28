@@ -26,3 +26,6 @@ build/
 dist/
 *.app/
 *.zip
+*.iconset/
+*.iconset
+*.icns
