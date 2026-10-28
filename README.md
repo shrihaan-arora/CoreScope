@@ -1,0 +1,2 @@
+# CoreScope
+app
