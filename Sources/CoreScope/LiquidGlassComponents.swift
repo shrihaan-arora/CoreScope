@@ -4,7 +4,18 @@ import SwiftUI
 // MARK: - Liquid Glass Design System
 
 enum LiquidGlassStyle {
-    // Primary palette: deep obsidian, muted teal, fresh emerald, restrained amber, coral, violet
+    // Atmosphere palette: Midnight blue-violet atmosphere
+    static let midnight = Color(red: 0.035, green: 0.045, blue: 0.075) // #090B13 near-black midnight base
+    static let indigoGlow = Color(red: 0.14, green: 0.20, blue: 0.52) // #243385 soft static indigo-blue pool
+    static let violetGlow = Color(red: 0.32, green: 0.20, blue: 0.58) // #523394 restrained violet ambient light
+    static let violetTint = Color(red: 0.52, green: 0.44, blue: 0.88) // #8570E0 panel tint & specular edge
+
+    // Typography tokens
+    static let textPrimary = Color.white
+    static let textSecondary = Color(red: 0.68, green: 0.71, blue: 0.84) // muted lavender
+    static let textTertiary = Color(red: 0.48, green: 0.51, blue: 0.64)
+
+    // Hardware telemetry semantic palette
     static let teal = Color(red: 0.18, green: 0.74, blue: 0.70)
     static let emerald = Color(red: 0.20, green: 0.78, blue: 0.56)
     static let amber = Color(red: 0.95, green: 0.65, blue: 0.24)
@@ -141,9 +152,9 @@ struct AmbientBackgroundView: View {
 
     var body: some View {
         ZStack {
-            // Base surface
+            // Base surface: deep midnight near-black
             if colorScheme == .dark {
-                LiquidGlassStyle.obsidian.ignoresSafeArea()
+                LiquidGlassStyle.midnight.ignoresSafeArea()
             } else {
                 Color(nsColor: .windowBackgroundColor).ignoresSafeArea()
             }
@@ -156,38 +167,40 @@ struct AmbientBackgroundView: View {
                         .aspectRatio(contentMode: .fill)
                         .frame(width: geo.size.width, height: geo.size.height)
                         .clipped()
-                        .opacity(colorScheme == .dark ? 0.35 : 0.15)
+                        .opacity(colorScheme == .dark ? 0.30 : 0.12)
                         .allowsHitTesting(false)
                 }
                 .ignoresSafeArea()
             }
 
-            // Ambient lighting pools for layered depth
+            // Static midnight blue-violet ambient illumination pools (zero animation overhead)
             if !reduceTransparency {
                 GeometryReader { proxy in
+                    // Broad static indigo-blue pool in upper-left
                     Circle()
-                        .fill(LiquidGlassStyle.teal.opacity(colorScheme == .dark ? 0.07 : 0.04))
-                        .frame(width: 480, height: 480)
-                        .blur(radius: 130)
-                        .position(x: proxy.size.width * 0.12, y: 30)
+                        .fill(LiquidGlassStyle.indigoGlow.opacity(colorScheme == .dark ? 0.16 : 0.08))
+                        .frame(width: 620, height: 620)
+                        .blur(radius: 150)
+                        .position(x: proxy.size.width * 0.20, y: proxy.size.height * 0.18)
                         .allowsHitTesting(false)
 
+                    // Restrained violet ambient pool in lower-right
                     Circle()
-                        .fill(LiquidGlassStyle.violet.opacity(colorScheme == .dark ? 0.05 : 0.03))
-                        .frame(width: 520, height: 520)
-                        .blur(radius: 140)
-                        .position(x: proxy.size.width * 0.88, y: proxy.size.height * 0.70)
+                        .fill(LiquidGlassStyle.violetGlow.opacity(colorScheme == .dark ? 0.13 : 0.06))
+                        .frame(width: 580, height: 580)
+                        .blur(radius: 160)
+                        .position(x: proxy.size.width * 0.82, y: proxy.size.height * 0.72)
                         .allowsHitTesting(false)
                 }
                 .ignoresSafeArea()
             }
 
-            // Contrast overlay
+            // High-contrast dark veil for ultra-sharp typography
             if colorScheme == .dark {
-                Color.black.opacity(reduceTransparency ? 0.88 : 0.28)
+                Color.black.opacity(reduceTransparency ? 0.92 : 0.32)
                     .ignoresSafeArea()
             } else {
-                Color.white.opacity(reduceTransparency ? 0.90 : 0.40)
+                Color.white.opacity(reduceTransparency ? 0.90 : 0.38)
                     .ignoresSafeArea()
             }
         }
@@ -221,8 +234,8 @@ struct GlassCard<Content: View>: View {
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(specularBorder)
             .shadow(
-                color: Color.black.opacity(colorScheme == .dark ? 0.24 : 0.06),
-                radius: 16,
+                color: Color.black.opacity(colorScheme == .dark ? 0.30 : 0.08),
+                radius: 18,
                 x: 0,
                 y: 8
             )
@@ -232,12 +245,15 @@ struct GlassCard<Content: View>: View {
     private var backgroundSurface: some View {
         if reduceTransparency {
             if colorScheme == .dark {
-                Color(red: 0.11, green: 0.12, blue: 0.15)
+                Color(red: 0.08, green: 0.09, blue: 0.14)
             } else {
                 Color(nsColor: .controlBackgroundColor)
             }
         } else {
-            Rectangle().fill(.ultraThinMaterial)
+            ZStack {
+                Rectangle().fill(.ultraThinMaterial)
+                Rectangle().fill(LiquidGlassStyle.violetTint.opacity(colorScheme == .dark ? 0.03 : 0.015))
+            }
         }
     }
 
@@ -246,9 +262,9 @@ struct GlassCard<Content: View>: View {
             .strokeBorder(
                 LinearGradient(
                     colors: [
-                        Color.white.opacity(colorScheme == .dark ? 0.18 : 0.45),
-                        Color.white.opacity(colorScheme == .dark ? 0.04 : 0.12),
-                        Color.black.opacity(colorScheme == .dark ? 0.25 : 0.05)
+                        Color.white.opacity(colorScheme == .dark ? 0.18 : 0.40),
+                        LiquidGlassStyle.violetTint.opacity(colorScheme == .dark ? 0.08 : 0.12),
+                        Color.black.opacity(colorScheme == .dark ? 0.35 : 0.08)
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
@@ -279,7 +295,7 @@ struct TemperatureMetricCard: View {
                     Text(title)
                         .font(.system(size: 10, weight: .bold, design: .rounded))
                         .tracking(1.0)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(LiquidGlassStyle.textSecondary)
                     Spacer(minLength: 0)
                 }
 
@@ -301,7 +317,7 @@ struct TemperatureMetricCard: View {
                 // Subtitle description
                 Text(subtitle)
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(LiquidGlassStyle.textSecondary)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -326,7 +342,7 @@ struct PowerStatusCard: View {
                         Text("POWER & SYSTEM HEALTH")
                             .font(.system(size: 10, weight: .bold, design: .rounded))
                             .tracking(1.1)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(LiquidGlassStyle.textSecondary)
                     }
                     Spacer()
                     // Thermal pressure status pill
@@ -358,7 +374,7 @@ struct PowerStatusCard: View {
                         title: "POWER ADAPTER",
                         value: adapterHeadline,
                         detail: adapterDetail,
-                        accent: snapshot?.isAdapterConnected == true ? LiquidGlassStyle.emerald : .secondary
+                        accent: snapshot?.isAdapterConnected == true ? LiquidGlassStyle.emerald : LiquidGlassStyle.textSecondary
                     )
 
                     metricItem(
@@ -366,7 +382,7 @@ struct PowerStatusCard: View {
                         title: "CHARGING STATUS",
                         value: chargingHeadline,
                         detail: chargingDetail,
-                        accent: snapshot?.isCharging == true ? LiquidGlassStyle.emerald : .secondary
+                        accent: snapshot?.isCharging == true ? LiquidGlassStyle.emerald : LiquidGlassStyle.textSecondary
                     )
                 }
             }
@@ -394,13 +410,13 @@ struct PowerStatusCard: View {
                 Text(title)
                     .font(.system(size: 9, weight: .bold, design: .rounded))
                     .tracking(0.8)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(LiquidGlassStyle.textSecondary)
                 Text(value)
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(LiquidGlassStyle.textPrimary)
                 Text(detail)
                     .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(LiquidGlassStyle.textSecondary)
                     .lineLimit(1)
             }
         }
@@ -563,23 +579,23 @@ struct SensorCard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(reading.sensorName)
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(LiquidGlassStyle.textPrimary)
                         .lineLimit(1)
 
                     HStack(spacing: 6) {
                         Text(reading.category.rawValue)
                             .font(.system(size: 9, weight: .medium, design: .rounded))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(LiquidGlassStyle.textSecondary)
 
                         Circle()
-                            .fill(Color.secondary.opacity(0.3))
+                            .fill(LiquidGlassStyle.textSecondary.opacity(0.35))
                             .frame(width: 3, height: 3)
 
                         // Subtle temperature scale bar (0–100 °C bounds)
                         GeometryReader { geo in
                             ZStack(alignment: .leading) {
                                 Capsule()
-                                    .fill(Color.primary.opacity(0.06))
+                                    .fill(Color.white.opacity(0.06))
                                 Capsule()
                                     .fill(
                                         LinearGradient(
@@ -622,18 +638,19 @@ struct StatusIndicator: View {
             Text(title)
                 .font(.system(size: 10, weight: .bold, design: .rounded))
                 .tracking(0.7)
+                .foregroundStyle(LiquidGlassStyle.textPrimary)
 
             if let subtitle = subtitle {
                 Text("·")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(LiquidGlassStyle.textSecondary)
                 Text(subtitle)
                     .font(.system(size: 10, design: .rounded))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(LiquidGlassStyle.textSecondary)
             }
         }
         .padding(.horizontal, 11)
         .padding(.vertical, 6)
         .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
+        .overlay(Capsule().strokeBorder(LiquidGlassStyle.violetTint.opacity(0.20), lineWidth: 1))
     }
 }

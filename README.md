@@ -6,10 +6,13 @@ A native, on-demand hardware observability dashboard designed specifically for A
 
 ## Interface Preview
 
-### Liquid Glass Dashboard Overview
+### 1. Midnight Liquid Glass Dashboard Overview
 ![CoreScope Liquid Glass Dashboard](docs/screenshots/dashboard.png)
 
-### Hardware Sensor Explorer & Category Filter
+### 2. User-Controlled Thermal Recording Session (Live Swift Charts)
+![CoreScope Thermal Session](docs/screenshots/thermal_session.png)
+
+### 3. Hardware Sensor Explorer & Category Filter
 ![CoreScope Sensor Explorer](docs/screenshots/sensor_explorer.png)
 
 ---
@@ -23,12 +26,25 @@ A native, on-demand hardware observability dashboard designed specifically for A
   - **Battery (`battery` / `gas gauge`)**: Battery pack thermal sensors.
   - **Storage (`nand` / `storage`)**: NVMe and NAND flash storage controller sensors.
   - **Calibration / Reference (`tcal`)**: Reference channels reported by Apple PMU firmware, strictly isolated from operating die averages.
-- **Power & Battery Health**: Reads active power mode (AC power vs. battery discharge), physical adapter connection, charging state, and battery percentage via `IOPowerSources` (`IOKit.ps`).
-- **Liquid Glass Visual Hierarchy**: Glassmorphic translucent cards, specular highlights, and color-coded telemetry bars built entirely in native SwiftUI.
-- **Native macOS App Icon**: Liquid-glass squircle icon featuring a stylized "C" waveform pulse compiled directly from 1024×1024 source artwork into native multi-resolution `AppIcon.icns`.
+- **User-Controlled Thermal Sessions**:
+  - Optional, active periodic recording with a disciplined **2.0-second sampling interval**.
+  - Configurable durations: **30 seconds**, **2 minutes**, **5 minutes**, or **Manual stop**.
+  - Live hardware temperature visualization using native **Swift Charts** (peak die in amber, average die in teal with area gradient).
+  - In-memory summary statistics: peak observed temperature, overall average, minimum die baseline, sample count, and recorded duration.
+  - **Strict Non-Overlapping Probing**: Collisions are prevented by design (`isSamplingInProgress` guard).
+  - **In-Memory Privacy**: Zero automatic file writing, zero databases, and zero telemetry. All session data resides in RAM until explicitly exported or cleared.
+  - **Native RFC 4180 CSV Export**: User-triggered export via `NSSavePanel`. Automatically sanitizes and excludes usernames, home directory paths, serial numbers, and machine identifiers.
+- **Power & Battery Health**: Reads active power mode (AC power vs. battery discharge), physical adapter connection, charging state, and battery percentage via `IOPowerSources` (`IOKit.ps`). Charging status is reported separately from adapter presence.
+- **Midnight Liquid Glass Aesthetic**:
+  - Deep midnight near-black base surface with static indigo-blue and violet illumination pools.
+  - Translucent floating glass cards with subtle specular reflections and restrained violet tint.
+  - Clear white primary typography and muted lavender secondary labels.
+  - Full support for macOS accessibility features (Reduce Transparency and Reduce Motion).
+- **Three-Section Native Navigation**: Effortlessly switch between `Overview`, `Thermal Session`, and `Sensors` using a compact segmented control.
+- **Native macOS App Icon**: Liquid-glass squircle icon compiled from 1024×1024 source artwork into native multi-resolution `AppIcon.icns`.
 - **Safe Local Asset Architecture**: Zero crash-prone `Bundle.module` access. Resolves `CoreScopeAmbient.png` locally with graceful dark-mode gradient fallback.
-- **On-Demand & Stateless**: Scanning runs off the UI thread upon opening or explicit user refresh. No continuous background polling, zero menu-bar extras, zero background daemons, and measured **0.0% idle CPU**.
-- **Clean Exit**: Closing the window cleanly terminates the application process.
+- **On-Demand & Stateless**: Normal monitoring runs off the UI thread upon launch or explicit user refresh. No continuous background polling, zero menu-bar extras, zero background daemons, and measured **0.0% idle CPU**.
+- **Clean Exit**: Closing the window cleanly cancels any active session and terminates the application process.
 
 ---
 
@@ -37,7 +53,7 @@ A native, on-demand hardware observability dashboard designed specifically for A
 - **Target Hardware**: Apple Silicon Mac (M1, M2, M3, M4 series). Tested on Apple MacBook Air (`Mac16,13`, Apple M4).
 - **Operating System**: macOS 13.0 (Ventura) or later.
 - **Development Toolchain**: Xcode 15+ or Swift 6.0+ toolchain.
-- **Offline Integrity**: Zero external package dependencies. Builds completely offline.
+- **Offline Integrity**: Zero external package dependencies (`dependencies: []`). Builds completely offline.
 
 ---
 
@@ -126,7 +142,7 @@ The script automatically enforces hardened runtime (`--options runtime`), submit
 
 ## Automated Testing
 
-Execute the test suite (14 automated tests covering sensor categorization invariants, summary math, power parsing, safe asset loading, and live hardware probes):
+Execute the test suite (**24 automated tests** covering sensor categorization invariants, summary math, power parsing, safe asset loading, live hardware probes, thermal session lifecycle, duration auto-termination, overlapping scan prevention, statistics calculation, and RFC 4180 CSV escaping):
 
 ```sh
 swift test
@@ -142,7 +158,7 @@ Apple Silicon exposes hardware thermal nodes via the local IOKit HID Event Syste
 - Hardware node descriptor (`IOHIDServiceClientCopyProperty` with `Product`).
 - Subsystem categorization (`tdie`, `tdev`, `battery`, `nand`, `tcal`).
 
-Sensor handles follow an on-demand lifecycle: `IOHIDEventSystemClient` is created for each scan and released immediately upon completion. No sensor clients or timers remain active while the dashboard is idle.
+Sensor handles follow an on-demand lifecycle: `IOHIDEventSystemClient` is created for each scan and released immediately upon completion. When idle, zero sensor clients, threads, or timers remain open. During an active Thermal Session, reads execute asynchronously on a fixed 2.0-second interval with an in-flight guard to prevent overlapping hardware probes.
 
 ### Hardware Limitations & Truthful Reporting
 - **Channel Identifiers**: Nodes are reported under their genuine Apple PMU channel names (e.g. `PMU tdie1`, `PMU tdev4`, `gas gauge battery`). Apple does not publicly document fixed mappings between PMU channel names and CPU/GPU core numbers; CoreScope displays authentic raw descriptors rather than inventing core assignments.
@@ -154,6 +170,7 @@ Sensor handles follow an on-demand lifecycle: `IOHIDEventSystemClient` is create
 ## Security & Privacy Model
 
 - **Local-Only by Design**: CoreScope makes no intentional app-level network requests, has no telemetry or analytics SDKs, requires no accounts, and connects to no cloud services.
+- **In-Memory Data Handling**: Thermal session recordings remain exclusively in volatile memory. CSV exports only occur after explicit user selection via a native macOS save dialog.
 - **Scope of Claims**: The offline architecture minimizes external exposure, but no software can promise absolute immunity against all memory defects, system-level bugs, or local macOS security boundary issues.
 - **Reporting Vulnerabilities**: Suspected security issues should be reported confidentially via [GitHub Security Advisories](https://github.com/shrihaan-arora/CoreScope/security/advisories). See [SECURITY.md](SECURITY.md).
 

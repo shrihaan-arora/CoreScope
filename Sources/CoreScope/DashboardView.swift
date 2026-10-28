@@ -1,13 +1,39 @@
 import SwiftUI
 
+// MARK: - Dashboard Navigation Section
+
+enum DashboardSection: String, CaseIterable, Identifiable {
+    case overview = "Overview"
+    case thermalSession = "Thermal Session"
+    case sensors = "Sensors"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .overview: return "gauge.medium"
+        case .thermalSession: return "waveform.path.ecg"
+        case .sensors: return "cpu"
+        }
+    }
+}
+
+// MARK: - Main Dashboard View
+
 struct DashboardView: View {
     @StateObject private var model: DashboardModel
+    @State private var selectedSection: DashboardSection
     @State private var selectedCategory: String
     @State private var searchText: String = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(model: DashboardModel = DashboardModel(), initialCategory: String = "All") {
+    init(
+        model: DashboardModel = DashboardModel(),
+        initialSection: DashboardSection = .overview,
+        initialCategory: String = "All"
+    ) {
         _model = StateObject(wrappedValue: model)
+        _selectedSection = State(initialValue: initialSection)
         _selectedCategory = State(initialValue: initialCategory)
     }
 
@@ -18,15 +44,22 @@ struct DashboardView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     header
-                    thermalOverview
-                    powerAndBatteryPanel
-                    sensorExplorer
-                    diagnosticsSection
+                    navigationBar
+
+                    switch selectedSection {
+                    case .overview:
+                        overviewSection
+                    case .thermalSession:
+                        thermalSessionSection
+                    case .sensors:
+                        sensorsSection
+                    }
+
                     footer
                 }
                 .padding(.horizontal, 28)
-                .padding(.vertical, 24)
-                .frame(maxWidth: 1140, alignment: .leading)
+                .padding(.vertical, 22)
+                .frame(maxWidth: 1160, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }
         }
@@ -37,45 +70,54 @@ struct DashboardView: View {
         }
     }
 
-    // MARK: - A. Compact Application Header
+    // MARK: - A. Persistent Header
 
     private var header: some View {
         HStack(spacing: 14) {
-            // Liquid-glass icon badge
+            // App Icon Badge
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(
                         LinearGradient(
-                            colors: [LiquidGlassStyle.teal, LiquidGlassStyle.emerald],
+                            colors: [LiquidGlassStyle.teal, LiquidGlassStyle.indigoGlow],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
                 Image(systemName: "waveform.path.ecg")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(.white)
             }
             .frame(width: 40, height: 40)
-            .shadow(color: LiquidGlassStyle.teal.opacity(0.3), radius: 8, x: 0, y: 3)
+            .shadow(color: LiquidGlassStyle.indigoGlow.opacity(0.4), radius: 8, x: 0, y: 3)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
                     Text("CoreScope")
                         .font(.system(size: 21, weight: .bold, design: .rounded))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(LiquidGlassStyle.textPrimary)
 
-                    StatusIndicator(
-                        title: "ON-DEMAND",
-                        subtitle: nil,
-                        icon: nil,
-                        color: LiquidGlassStyle.emerald
-                    )
+                    if model.session.state == .running {
+                        StatusIndicator(
+                            title: "SESSION ACTIVE",
+                            subtitle: "\(String(format: "%.0f", model.session.elapsedSeconds))s",
+                            icon: "record.circle",
+                            color: LiquidGlassStyle.emerald
+                        )
+                    } else {
+                        StatusIndicator(
+                            title: "ON-DEMAND",
+                            subtitle: nil,
+                            icon: nil,
+                            color: LiquidGlassStyle.teal
+                        )
+                    }
                 }
 
                 Text("APPLE SILICON HARDWARE OBSERVABILITY")
                     .font(.system(size: 9, weight: .bold, design: .rounded))
                     .tracking(1.2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(LiquidGlassStyle.textSecondary)
             }
 
             Spacer(minLength: 16)
@@ -84,11 +126,11 @@ struct DashboardView: View {
             if let sampledAt = model.snapshot?.sampledAt {
                 Text("Last scan: \(sampledAt.formatted(date: .omitted, time: .standard))")
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(LiquidGlassStyle.textSecondary)
                     .padding(.horizontal, 8)
             }
 
-            // Prominent native Refresh button
+            // Native Refresh button
             Button {
                 model.refresh()
             } label: {
@@ -105,13 +147,14 @@ struct DashboardView: View {
                     Text(model.isRefreshing ? "Scanning…" : "Refresh")
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
                 }
+                .foregroundStyle(LiquidGlassStyle.textPrimary)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .background(.ultraThinMaterial, in: Capsule())
                 .overlay(
                     Capsule().strokeBorder(
                         LinearGradient(
-                            colors: [Color.white.opacity(0.25), Color.white.opacity(0.05)],
+                            colors: [Color.white.opacity(0.25), LiquidGlassStyle.violetTint.opacity(0.15)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ),
@@ -120,13 +163,89 @@ struct DashboardView: View {
                 )
             }
             .buttonStyle(.plain)
-            .disabled(model.isRefreshing)
+            .disabled(model.isRefreshing || model.session.isSamplingInProgress)
             .help("Execute one hardware scan. Zero continuous background polling.")
         }
         .padding(.vertical, 2)
     }
 
-    // MARK: - B. Thermal Overview
+    // MARK: - B. Navigation Bar (Segmented Control)
+
+    private var navigationBar: some View {
+        HStack {
+            HStack(spacing: 4) {
+                ForEach(DashboardSection.allCases) { section in
+                    let isSelected = selectedSection == section
+                    Button {
+                        selectedSection = section
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: section.icon)
+                                .font(.system(size: 11, weight: isSelected ? .bold : .medium))
+                            Text(section.rawValue)
+                                .font(.system(size: 12, weight: isSelected ? .semibold : .medium, design: .rounded))
+                        }
+                        .foregroundStyle(isSelected ? LiquidGlassStyle.textPrimary : LiquidGlassStyle.textSecondary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(
+                            isSelected
+                                ? AnyShapeStyle(LiquidGlassStyle.violetTint.opacity(0.35))
+                                : AnyShapeStyle(Color.clear)
+                        )
+                        .clipShape(Capsule())
+                        .overlay(
+                            isSelected
+                                ? Capsule().strokeBorder(LiquidGlassStyle.violetTint.opacity(0.6), lineWidth: 1)
+                                : nil
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(4)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+
+            Spacer()
+
+            // Contextual quick summary
+            if selectedSection == .overview, let summary = model.snapshot?.temperatureSummary {
+                HStack(spacing: 12) {
+                    if let peak = summary.peakDieReading {
+                        HStack(spacing: 4) {
+                            Circle().fill(LiquidGlassStyle.tempColor(for: peak.temperatureC)).frame(width: 6, height: 6)
+                            Text("Peak: \(String(format: "%.1f°C", peak.temperatureC))")
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                .foregroundStyle(LiquidGlassStyle.textPrimary)
+                        }
+                    }
+                    if let avg = summary.dieAverageC {
+                        HStack(spacing: 4) {
+                            Circle().fill(LiquidGlassStyle.teal).frame(width: 6, height: 6)
+                            Text("Die Avg: \(String(format: "%.1f°C", avg))")
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                .foregroundStyle(LiquidGlassStyle.textPrimary)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+            }
+        }
+    }
+
+    // MARK: - C. Section 1: Overview
+
+    private var overviewSection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            thermalOverview
+            powerAndBatteryPanel
+            diagnosticsSection
+        }
+    }
 
     private var thermalOverview: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -144,7 +263,7 @@ struct DashboardView: View {
                         value: summary.peakDieReading.map { String(format: "%.1f", $0.temperatureC) } ?? "Unavailable",
                         unit: summary.peakDieReading != nil ? "°C" : "",
                         subtitle: summary.peakDieReading?.sensorName ?? "No active die sensors",
-                        accent: summary.peakDieReading.map { LiquidGlassStyle.tempColor(for: $0.temperatureC) } ?? .secondary,
+                        accent: summary.peakDieReading.map { LiquidGlassStyle.tempColor(for: $0.temperatureC) } ?? LiquidGlassStyle.textSecondary,
                         icon: "thermometer.sun.fill"
                     )
 
@@ -155,7 +274,7 @@ struct DashboardView: View {
                         subtitle: summary.dieSensorCount > 0
                             ? "\(summary.dieSensorCount) active die channels (excludes device/ref)"
                             : "No active die channels",
-                        accent: summary.dieAverageC.map { LiquidGlassStyle.tempColor(for: $0) } ?? .secondary,
+                        accent: summary.dieAverageC.map { LiquidGlassStyle.tempColor(for: $0) } ?? LiquidGlassStyle.textSecondary,
                         icon: "chart.bar.xaxis"
                     )
 
@@ -177,7 +296,7 @@ struct DashboardView: View {
                         ProgressView()
                         Text("Reading Apple Silicon PMU sensors…")
                             .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(LiquidGlassStyle.textSecondary)
                     }
                     .padding(32)
                     Spacer()
@@ -187,18 +306,26 @@ struct DashboardView: View {
         }
     }
 
-    // MARK: - C. Power and Battery Panel
-
     private var powerAndBatteryPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
             PowerStatusCard(snapshot: model.snapshot)
         }
     }
 
-    // MARK: - D. Sensor Explorer
+    private var diagnosticsSection: some View {
+        DiagnosticsSection(snapshot: model.snapshot)
+    }
 
-    private var sensorExplorer: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    // MARK: - D. Section 2: Thermal Session
+
+    private var thermalSessionSection: some View {
+        ThermalSessionView(session: model.session)
+    }
+
+    // MARK: - E. Section 3: Sensor Explorer
+
+    private var sensorsSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
             let readings = model.snapshot?.temperatureReadings ?? []
             let filtered = filteredReadings(readings)
 
@@ -210,29 +337,29 @@ struct DashboardView: View {
                 Spacer()
             }
 
-            // Controls row: Category filter capsules & search bar
+            // Filter Tabs & Search Field
             HStack(spacing: 10) {
                 categoryFilterTabs(readings: readings)
                 Spacer(minLength: 8)
                 searchField
             }
 
-            // Informative notice when Calibration / Reference category is selected
+            // Notice for Calibration / Reference
             if selectedCategory == SensorCategory.calibration.rawValue {
                 HStack(spacing: 10) {
                     Image(systemName: "info.circle.fill")
-                        .foregroundStyle(LiquidGlassStyle.violet)
+                        .foregroundStyle(LiquidGlassStyle.violetTint)
                     Text("Channels labeled 'tcal' by Apple PMU firmware are classified as Calibration / Reference and are isolated from operating die averages.")
                         .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(LiquidGlassStyle.textSecondary)
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(LiquidGlassStyle.violet.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(LiquidGlassStyle.violet.opacity(0.20), lineWidth: 1))
+                .background(LiquidGlassStyle.violetTint.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(LiquidGlassStyle.violetTint.opacity(0.25), lineWidth: 1))
             }
 
-            // Filtered sensor cards grid
+            // Sensor Cards Grid
             if filtered.isEmpty {
                 GlassCard(cornerRadius: 16, padding: 28) {
                     HStack {
@@ -240,10 +367,10 @@ struct DashboardView: View {
                         VStack(spacing: 8) {
                             Image(systemName: "magnifyingglass")
                                 .font(.system(size: 22))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(LiquidGlassStyle.textSecondary)
                             Text("No sensors match \"\(searchText)\" in category \"\(selectedCategory)\"")
                                 .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(LiquidGlassStyle.textSecondary)
                         }
                         Spacer()
                     }
@@ -285,7 +412,7 @@ struct DashboardView: View {
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 1.5)
                                 .background(
-                                    Capsule().fill(selectedCategory == catName ? Color.black.opacity(0.18) : Color.primary.opacity(0.06))
+                                    Capsule().fill(selectedCategory == catName ? Color.black.opacity(0.25) : Color.white.opacity(0.06))
                                 )
                         }
                         .font(.system(size: 11, design: .rounded))
@@ -301,12 +428,12 @@ struct DashboardView: View {
                         .overlay(
                             Capsule().strokeBorder(
                                 selectedCategory == catName
-                                    ? Color.white.opacity(0.25)
-                                    : Color.primary.opacity(0.06),
+                                    ? Color.white.opacity(0.3)
+                                    : Color.white.opacity(0.08),
                                 lineWidth: 1
                             )
                         )
-                        .foregroundStyle(selectedCategory == catName ? Color.black : Color.primary)
+                        .foregroundStyle(selectedCategory == catName ? Color.black : LiquidGlassStyle.textPrimary)
                     }
                     .buttonStyle(.plain)
                 }
@@ -318,10 +445,11 @@ struct DashboardView: View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(LiquidGlassStyle.textSecondary)
             TextField("Filter sensors…", text: $searchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 11))
+                .foregroundStyle(LiquidGlassStyle.textPrimary)
                 .frame(width: 140)
             if !searchText.isEmpty {
                 Button {
@@ -329,7 +457,7 @@ struct DashboardView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(LiquidGlassStyle.textSecondary)
                 }
                 .buttonStyle(.plain)
             }
@@ -337,7 +465,7 @@ struct DashboardView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(LiquidGlassStyle.violetTint.opacity(0.2), lineWidth: 1))
     }
 
     private func filteredReadings(_ readings: [TemperatureReading]) -> [TemperatureReading] {
@@ -346,12 +474,6 @@ struct DashboardView: View {
             let matchesSearch = searchText.isEmpty || reading.sensorName.localizedCaseInsensitiveContains(searchText)
             return matchesCategory && matchesSearch
         }
-    }
-
-    // MARK: - E. Diagnostics
-
-    private var diagnosticsSection: some View {
-        DiagnosticsSection(snapshot: model.snapshot)
     }
 
     // MARK: - Footer
@@ -364,7 +486,7 @@ struct DashboardView: View {
             Text("LOCAL OBSERVABILITY · ZERO NETWORK CALLS · ON-DEMAND READS · TERMINATES ON CLOSE")
                 .font(.system(size: 9, weight: .bold, design: .rounded))
                 .tracking(0.9)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(LiquidGlassStyle.textSecondary)
             Spacer()
         }
         .padding(.top, 4)
@@ -375,11 +497,11 @@ struct DashboardView: View {
             Text(title)
                 .font(.system(size: 10, weight: .bold, design: .rounded))
                 .tracking(1.1)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(LiquidGlassStyle.textSecondary)
             Spacer()
             Text(subtitle)
                 .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(LiquidGlassStyle.textSecondary)
         }
     }
 }
@@ -416,7 +538,7 @@ struct DiagnosticsSection: View {
                     Text("SYSTEM & PROBE DIAGNOSTICS")
                         .font(.system(size: 10, weight: .bold, design: .rounded))
                         .tracking(1.1)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(LiquidGlassStyle.textSecondary)
                     Spacer()
                     Text(SystemInfo.chipName)
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
@@ -434,10 +556,10 @@ struct DiagnosticsSection: View {
             Text(label.uppercased())
                 .font(.system(size: 9, weight: .bold, design: .rounded))
                 .tracking(0.7)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(LiquidGlassStyle.textSecondary)
             Text(value)
                 .font(.system(size: 11, weight: .medium, design: .rounded))
-                .foregroundStyle(.primary)
+                .foregroundStyle(LiquidGlassStyle.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

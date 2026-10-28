@@ -310,3 +310,200 @@ import Testing
     #expect(!FileManager.default.fileExists(atPath: nonExistentURL.path))
     #expect(NSImage(contentsOf: nonExistentURL) == nil)
 }
+
+// MARK: - Thermal Session Unit Tests
+
+private func makeMockSnapshot(
+    dieTemps: [(String, Double)] = [("PMU tdie1", 42.0), ("PMU tdie2", 48.0)],
+    calTemps: [(String, Double)] = [("PMU tcal", 90.0)],
+    batteryTemps: [(String, Double)] = [("gas gauge battery", 31.0)],
+    powerMode: PowerMode = .battery,
+    batteryPercent: Int? = 75,
+    isCharging: Bool? = false,
+    isAdapterConnected: Bool? = false,
+    thermalState: String = "Nominal",
+    timestamp: Date = Date()
+) -> SensorSnapshot {
+    var readings: [TemperatureReading] = []
+    for (name, temp) in dieTemps {
+        readings.append(TemperatureReading(sensorName: name, temperatureC: temp))
+    }
+    for (name, temp) in calTemps {
+        readings.append(TemperatureReading(sensorName: name, temperatureC: temp))
+    }
+    for (name, temp) in batteryTemps {
+        readings.append(TemperatureReading(sensorName: name, temperatureC: temp))
+    }
+
+    return SensorSnapshot(
+        temperatureReadings: readings,
+        temperatureStatus: .available(sensorCount: readings.count),
+        powerMode: powerMode,
+        batteryPercent: batteryPercent,
+        isCharging: isCharging,
+        isAdapterConnected: isAdapterConnected,
+        thermalState: thermalState,
+        sampledAt: timestamp
+    )
+}
+
+@Test func testThermalSessionStartAndStop() async throws {
+    let mock = makeMockSnapshot()
+    let model = await MainActor.run {
+        ThermalSessionModel(sampleProvider: { mock })
+    }
+    await MainActor.run {
+        #expect(model.state == .idle)
+        #expect(model.samples.isEmpty)
+        model.startSession(duration: .manual)
+        #expect(model.state == .running)
+    }
+    try await Task.sleep(nanoseconds: 60_000_000)
+    await MainActor.run {
+        #expect(model.samples.count >= 1)
+        model.stopSession()
+        #expect(model.state == .completed)
+        #expect(model.lastSummary != nil)
+        #expect(model.lastSummary?.sampleCount == model.samples.count)
+    }
+}
+
+@Test func testThermalSessionDurationCases() throws {
+    #expect(ThermalSessionDuration.seconds30.seconds == 30.0)
+    #expect(ThermalSessionDuration.minutes2.seconds == 120.0)
+    #expect(ThermalSessionDuration.minutes5.seconds == 300.0)
+    #expect(ThermalSessionDuration.manual.seconds == nil)
+    #expect(ThermalSessionDuration.allCases.count == 4)
+}
+
+@Test func testThermalSessionCancellationDuringShutdown() async throws {
+    let mock = makeMockSnapshot()
+    let model = await MainActor.run {
+        ThermalSessionModel(sampleProvider: { mock })
+    }
+    await MainActor.run {
+        model.startSession(duration: .minutes5)
+        #expect(model.state == .running)
+        model.cancelAndTearDown()
+        #expect(model.state == .idle)
+        #expect(model.samples.isEmpty)
+        #expect(model.lastSummary == nil)
+    }
+}
+
+@Test func testThermalSessionOverlappingScanPrevention() async throws {
+    let model = await MainActor.run {
+        ThermalSessionModel(sampleProvider: {
+            Thread.sleep(forTimeInterval: 0.05)
+            return makeMockSnapshot()
+        })
+    }
+    await MainActor.run {
+        model.startSession(duration: .manual)
+        #expect(model.state == .running)
+        model.stopSession()
+        #expect(model.state == .completed)
+    }
+}
+
+@Test func testThermalSessionCalibrationExclusion() throws {
+    let mock = makeMockSnapshot(
+        dieTemps: [("PMU tdie1", 40.0), ("PMU tdie2", 50.0)],
+        calTemps: [("PMU tcal", 98.0)]
+    )
+    let start = Date()
+    let sample = ThermalSample.create(from: mock, startTime: start)
+
+    // Calibration channel PMU tcal (98.0) must NOT be the peak die temp
+    #expect(sample.peakDieTemp == 50.0)
+    #expect(sample.peakDieSensorName == "PMU tdie2")
+    // Average must be strictly die average (40 + 50) / 2 = 45.0
+    #expect(sample.averageDieTemp == 45.0)
+}
+
+@Test func testThermalSessionSummaryStatisticsCalculation() throws {
+    let samples: [ThermalSample] = [
+        ThermalSample(elapsedSeconds: 0.0, peakDieTemp: 44.0, peakDieSensorName: "PMU tdie1", averageDieTemp: 40.0, operatingChannelCount: 41, thermalState: "Nominal", powerMode: .battery, isCharging: false, batteryPercent: 80),
+        ThermalSample(elapsedSeconds: 2.0, peakDieTemp: 52.0, peakDieSensorName: "PMU tdie2", averageDieTemp: 46.0, operatingChannelCount: 41, thermalState: "Nominal", powerMode: .battery, isCharging: false, batteryPercent: 80),
+        ThermalSample(elapsedSeconds: 4.0, peakDieTemp: 48.0, peakDieSensorName: "PMU tdie1", averageDieTemp: 42.0, operatingChannelCount: 41, thermalState: "Fair", powerMode: .external, isCharging: true, batteryPercent: 81)
+    ]
+
+    let summary = try #require(ThermalSessionSummary.compute(from: samples))
+    #expect(summary.sampleCount == 3)
+    #expect(summary.totalDuration == 4.0)
+    #expect(summary.peakObservedTemp == 52.0)
+    #expect(summary.peakObservedSensor == "PMU tdie2")
+    #expect(summary.minObservedTemp == 40.0)
+    let expectedAvg = (40.0 + 46.0 + 42.0) / 3.0
+    #expect(abs(summary.averageObservedTemp! - expectedAvg) < 0.001)
+    #expect(summary.initialTemp == 40.0)
+    #expect(summary.finalTemp == 42.0)
+    #expect(summary.thermalStateTransitions == 1) // Nominal -> Nominal -> Fair
+    #expect(summary.powerModeTransitions == 1) // Battery -> Battery -> External
+}
+
+@Test func testThermalSessionEmptySession() throws {
+    #expect(ThermalSessionSummary.compute(from: []) == nil)
+    let csv = ThermalSessionCSVExporter.generateCSV(from: [])
+    #expect(csv.hasPrefix("Timestamp,ElapsedSeconds,PeakDieTempC,"))
+    let rows = csv.components(separatedBy: "\r\n").filter { !$0.isEmpty }
+    #expect(rows.count == 1) // Header only
+}
+
+@Test func testThermalSessionCSVExporterEscapingAndFormatting() throws {
+    #expect(ThermalSessionCSVExporter.escapeCSV("Normal") == "Normal")
+    #expect(ThermalSessionCSVExporter.escapeCSV("Sensor, with comma") == "\"Sensor, with comma\"")
+    #expect(ThermalSessionCSVExporter.escapeCSV("Sensor \"quoted\"") == "\"Sensor \"\"quoted\"\"\"")
+    #expect(ThermalSessionCSVExporter.escapeCSV("Sensor\nwith newline") == "\"Sensor\nwith newline\"")
+
+    let sample = ThermalSample(
+        elapsedSeconds: 0.0,
+        peakDieTemp: nil,
+        peakDieSensorName: nil,
+        averageDieTemp: nil,
+        operatingChannelCount: 0,
+        thermalState: "Nominal",
+        powerMode: .unknown,
+        isCharging: nil,
+        batteryPercent: nil
+    )
+    let csv = ThermalSessionCSVExporter.generateCSV(from: [sample])
+    let rows = csv.components(separatedBy: "\r\n").filter { !$0.isEmpty }
+    #expect(rows.count == 2)
+    let dataRow = rows[1]
+    #expect(dataRow.contains("unavailable"))
+}
+
+@Test func testThermalSessionClearSession() async throws {
+    let mock = makeMockSnapshot()
+    let model = await MainActor.run {
+        ThermalSessionModel(sampleProvider: { mock })
+    }
+    await MainActor.run {
+        model.startSession()
+    }
+    try await Task.sleep(nanoseconds: 60_000_000)
+    await MainActor.run {
+        #expect(!model.samples.isEmpty)
+        model.clearSession()
+        #expect(model.samples.isEmpty)
+        #expect(model.lastSummary == nil)
+        #expect(model.state == .idle)
+        #expect(model.elapsedSeconds == 0.0)
+    }
+}
+
+@Test func testThermalSessionPowerAndChargingStateCapture() throws {
+    let snapshot1 = makeMockSnapshot(powerMode: .external, batteryPercent: 90, isCharging: true)
+    let sample1 = ThermalSample.create(from: snapshot1, startTime: Date())
+    #expect(sample1.powerMode == .external)
+    #expect(sample1.batteryPercent == 90)
+    #expect(sample1.isCharging == true)
+
+    let snapshot2 = makeMockSnapshot(powerMode: .battery, batteryPercent: 45, isCharging: false)
+    let sample2 = ThermalSample.create(from: snapshot2, startTime: Date())
+    #expect(sample2.powerMode == .battery)
+    #expect(sample2.batteryPercent == 45)
+    #expect(sample2.isCharging == false)
+}
+

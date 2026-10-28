@@ -7,14 +7,20 @@ final class DashboardModel: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastError: String?
 
-    private let probe = SensorProbe()
+    let session: ThermalSessionModel
+    private let probe: SensorProbe
 
-    init(snapshot: SensorSnapshot? = nil) {
+    init(snapshot: SensorSnapshot? = nil, session: ThermalSessionModel? = nil, probe: SensorProbe = SensorProbe()) {
         self.snapshot = snapshot
+        self.session = session ?? ThermalSessionModel()
+        self.probe = probe
     }
 
     func refresh() {
         guard !isRefreshing else { return }
+        // Prevent collision with any session hardware probe currently in flight
+        guard !session.isSamplingInProgress else { return }
+
         isRefreshing = true
         lastError = nil
 
