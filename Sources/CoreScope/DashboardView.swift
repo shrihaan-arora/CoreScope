@@ -196,8 +196,10 @@ struct DashboardView: View {
 
                         SummaryMetricChip(
                             title: "DIE SENSOR AVERAGE",
-                            value: summary.dieAverageC.map { String(format: "%.1f °C", $0) } ?? "Unavailable",
-                            subtitle: "\(summary.dieSensorCount) active die channels (excludes device/ref)",
+                            value: summary.formattedDieAverage,
+                            subtitle: summary.dieSensorCount > 0
+                                ? "\(summary.dieSensorCount) active die channels (excludes device/ref)"
+                                : "No active die channels",
                             accent: summary.dieAverageC.map { CoreScopeStyle.tempColor(for: $0) } ?? .secondary
                         )
 
@@ -223,7 +225,7 @@ struct DashboardView: View {
                         HStack(spacing: 10) {
                             Image(systemName: "info.circle.fill")
                                 .foregroundStyle(CoreScopeStyle.violet)
-                            Text("Calibration reference channels (e.g. tcal) reflect factory calibration setpoints and are isolated from operating die averages.")
+                            Text("Channels labeled 'tcal' by Apple PMU firmware are classified as Calibration / Reference and are isolated from operating die averages.")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                         }

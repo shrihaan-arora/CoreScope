@@ -44,7 +44,12 @@ A native, on-demand macOS hardware dashboard for Apple Silicon. CoreScope provid
 Apple Silicon exposes hardware thermal nodes via the local IOKit HID Event System. CoreScope queries `IOHIDEventSystemClient` with matching criteria for the Apple vendor usage page (`0xFF00`, usage `0x05`). Each matching service provides:
 - Live die temperature (`IOHIDServiceClientCopyEvent` with `kIOHIDEventTypeTemperature`).
 - Hardware node descriptor (`IOHIDServiceClientCopyProperty` with `Product`).
-- Subsystem categorization (Silicon Die, Device Nodes, Battery, Storage).
+- Subsystem categorization:
+  - **Silicon Die (`tdie`)**: Compute complex thermal sensors embedded across CPU/GPU cores and SoC fabric.
+  - **Device Nodes (`tdev`)**: Peripheral power-management thermal nodes across the logic board.
+  - **Battery (`battery` / `gas gauge`)**: Battery pack thermal sensors.
+  - **Storage (`nand` / `storage`)**: NVMe and NAND flash storage controller sensors.
+  - **Calibration / Reference (`tcal`)**: Reference channels reported by Apple PMU firmware. These are strictly isolated from operating die averages. CoreScope does not speculate on internal PMU calibration register designs without official technical documentation.
 
 ### Power & Battery
 Power status is gathered via Apple's public `IOPowerSources` (`IOKit.ps`) API, accurately distinguishing between:
@@ -57,6 +62,7 @@ System thermal pressure level is read directly from `ProcessInfo.processInfo.the
 
 ### Hardware-Specific Limitations
 - **Sensor Identifiers**: Thermal nodes are reported under their genuine Apple PMU channel names (e.g. `PMU tdie1`, `PMU tdev4`, `gas gauge battery`). Apple does not publicly document a 1:1 mapping between PMU channel names and specific CPU/GPU core numbers; CoreScope intentionally presents the authentic raw descriptors rather than fabricating core assignments.
+- **Calibration Channels (`tcal`)**: PMU channels labeled `tcal` are classified separately under Calibration / Reference and excluded from operating summaries. They are not assumed or claimed to represent factory calibration setpoints or target temperatures.
 - **Platform Scope**: Validated on Apple Silicon M-series (tested on Apple M4). Intel Macs use legacy SMC keys and are not supported by this HID-based probe.
 
 ## Security and Privacy

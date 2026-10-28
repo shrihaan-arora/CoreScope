@@ -24,12 +24,18 @@ enum SensorCategory: String, CaseIterable, Identifiable, Sendable, Comparable {
 
 /// A single validated temperature reading from an Apple Silicon PMU sensor.
 struct TemperatureReading: Identifiable, Sendable, Equatable {
+    /// Unique identifier for this sensor reading instance/channel.
+    let id: String
     /// The raw HID service product name (e.g. "PMU tdie1", "PMU tdev3", "PMU tcal").
     let sensorName: String
     /// Temperature in degrees Celsius, validated to the range 5–120 °C.
     let temperatureC: Double
 
-    var id: String { sensorName }
+    init(id: String? = nil, sensorName: String, temperatureC: Double) {
+        self.id = id ?? sensorName
+        self.sensorName = sensorName
+        self.temperatureC = temperatureC
+    }
 
     /// Subsystem classification based purely on Apple PMU channel conventions.
     /// Does NOT fabricate CPU/GPU core mappings.
@@ -41,7 +47,7 @@ struct TemperatureReading: Identifiable, Sendable, Equatable {
     static func classify(sensorName: String) -> SensorCategory {
         let lower = sensorName.lowercased()
         if lower.contains("tcal") {
-            // Calibration reference targets are distinct from operating die sensors
+            // Calibration/reference channels (e.g. tcal) are isolated from operating die sensors
             return .calibration
         } else if lower.contains("tdie") {
             return .siliconDie
@@ -91,6 +97,22 @@ struct TemperatureSummary: Sendable, Equatable {
         } else {
             self.dieAverageC = nil
         }
+    }
+
+    /// Formatted die average string, explicitly displaying "Unavailable" rather than zero when no validated die channels exist.
+    var formattedDieAverage: String {
+        if let avg = dieAverageC {
+            return String(format: "%.1f °C", avg)
+        }
+        return "Unavailable"
+    }
+
+    /// Formatted peak die sensor string, explicitly displaying "Unavailable" rather than zero when no validated die channels exist.
+    var formattedPeakDie: String {
+        if let peak = peakDieReading {
+            return "\(peak.sensorName) (\(String(format: "%.1f °C", peak.temperatureC)))"
+        }
+        return "Unavailable"
     }
 }
 
@@ -208,7 +230,7 @@ enum TemperatureProbe {
                 continue
             }
 
-            readings.append(TemperatureReading(sensorName: name, temperatureC: value))
+            readings.append(TemperatureReading(id: "\(name)#\(i)", sensorName: name, temperatureC: value))
         }
 
         if readings.isEmpty {

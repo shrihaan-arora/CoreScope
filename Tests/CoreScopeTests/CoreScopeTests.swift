@@ -49,21 +49,104 @@ import Testing
     #expect(summary.peakOperatingReading?.temperatureC == 50.0)
 }
 
-@Test func testTemperatureSummaryEmptyDieChannels() throws {
+@Test func testSensorCategoryExclusivityAndCountConservation() throws {
+    // Construct synthetic readings matching genuine Apple Silicon PMU naming patterns
+    var readings: [TemperatureReading] = []
+
+    // 24 Silicon Die channels
+    for i in 1...14 {
+        readings.append(TemperatureReading(id: "die-\(i)", sensorName: "PMU tdie\(i)", temperatureC: 38.0 + Double(i) * 0.2))
+    }
+    for i in 1...10 {
+        readings.append(TemperatureReading(id: "die2-\(i)", sensorName: "PMU2 tdie\(i)", temperatureC: 35.0 + Double(i) * 0.2))
+    }
+
+    // 10 Device Node channels
+    for i in 2...8 {
+        readings.append(TemperatureReading(id: "dev-\(i)", sensorName: "PMU tdev\(i)", temperatureC: 34.0 + Double(i) * 0.1))
+    }
+    for i in [2, 4, 5] {
+        readings.append(TemperatureReading(id: "dev2-\(i)", sensorName: "PMU2 tdev\(i)", temperatureC: 33.0 + Double(i) * 0.1))
+    }
+
+    // 6 Battery channels (same product descriptor, unique channel IDs)
+    for i in 1...6 {
+        readings.append(TemperatureReading(id: "battery-\(i)", sensorName: "gas gauge battery", temperatureC: 31.0 + Double(i) * 0.1))
+    }
+
+    // 1 Storage channel
+    readings.append(TemperatureReading(id: "nand-0", sensorName: "NAND CH0 temp", temperatureC: 33.0))
+
+    // 2 Calibration / Reference channels
+    readings.append(TemperatureReading(id: "cal-1", sensorName: "PMU tcal", temperatureC: 51.8))
+    readings.append(TemperatureReading(id: "cal-2", sensorName: "PMU2 tcal", temperatureC: 51.8))
+
+    // Total count must be 24 + 10 + 6 + 1 + 2 = 43
+    #expect(readings.count == 43)
+
+    // 1. Every unique sensor reading appears in exactly one category
+    let grouped = Dictionary(grouping: readings, by: \.category)
+    var seenIds = Set<String>()
+    for (_, catReadings) in grouped {
+        for reading in catReadings {
+            #expect(!seenIds.contains(reading.id), "Reading \(reading.id) appeared in multiple categories")
+            seenIds.insert(reading.id)
+        }
+    }
+    #expect(seenIds.count == readings.count)
+
+    // 2. The sum of category counts equals the total number of unique readings
+    let sumCategoryCounts = SensorCategory.allCases.map { grouped[$0]?.count ?? 0 }.reduce(0, +)
+    #expect(sumCategoryCounts == readings.count)
+    #expect(grouped[.siliconDie]?.count == 24)
+    #expect(grouped[.deviceNode]?.count == 10)
+    #expect(grouped[.battery]?.count == 6)
+    #expect(grouped[.storage]?.count == 1)
+    #expect(grouped[.calibration]?.count == 2)
+    #expect(grouped[.system]?.count == nil || grouped[.system]?.count == 0)
+
+    // 3. Calibration channels are excluded from operating-temperature summaries
+    let summary = TemperatureSummary(readings: readings)
+    #expect(summary.calibrationSensorCount == 2)
+    #expect(summary.operatingSensorCount == 41)
+    #expect(summary.peakOperatingReading?.category != .calibration)
+
+    // 4. The die average includes only validated die channels
+    #expect(summary.dieSensorCount == 24)
+    let dieOnlySum = readings.filter { $0.category == .siliconDie }.reduce(0.0) { $0 + $1.temperatureC }
+    let expectedDieAvg = dieOnlySum / 24.0
+    #expect(summary.dieAverageC == expectedDieAvg)
+    #expect(summary.peakDieReading?.category == .siliconDie)
+}
+
+@Test func testMissingCategoriesDisplayUnavailableRatherThanZero() throws {
+    // Readings containing ONLY battery and calibration sensors (NO die sensors)
     let readings: [TemperatureReading] = [
-        TemperatureReading(sensorName: "gas gauge battery", temperatureC: 32.0),
-        TemperatureReading(sensorName: "PMU tcal", temperatureC: 51.8)
+        TemperatureReading(id: "bat-1", sensorName: "gas gauge battery", temperatureC: 32.0),
+        TemperatureReading(id: "cal-1", sensorName: "PMU tcal", temperatureC: 51.8)
     ]
 
     let summary = TemperatureSummary(readings: readings)
 
-    // If no Silicon Die channels exist, dieAverageC and peakDieReading must be nil (unavailable, NOT zero)
-    #expect(summary.dieAverageC == nil)
+    // 5. Missing categories display unavailable rather than zero
     #expect(summary.dieSensorCount == 0)
+    #expect(summary.dieAverageC == nil)
     #expect(summary.peakDieReading == nil)
-    #expect(summary.calibrationSensorCount == 1)
-    #expect(summary.operatingSensorCount == 1)
-    #expect(summary.peakOperatingReading?.sensorName == "gas gauge battery")
+
+    // Check formatted text representation explicitly
+    #expect(summary.formattedDieAverage == "Unavailable")
+    #expect(summary.formattedDieAverage != "0.0 °C")
+    #expect(summary.formattedDieAverage != "0 °C")
+    #expect(summary.formattedDieAverage != "0")
+    #expect(summary.formattedPeakDie == "Unavailable")
+    #expect(summary.formattedPeakDie != "0.0 °C")
+
+    // Empty reading set
+    let emptySummary = TemperatureSummary(readings: [])
+    #expect(emptySummary.dieAverageC == nil)
+    #expect(emptySummary.formattedDieAverage == "Unavailable")
+    #expect(emptySummary.formattedPeakDie == "Unavailable")
+    #expect(emptySummary.peakOperatingReading == nil)
 }
 
 // MARK: - Power Source Parsing & State Transition Tests
@@ -164,8 +247,30 @@ import Testing
     #expect(snapshot.powerMode != .unknown)
     #expect(!snapshot.temperatureReadings.isEmpty)
 
+    let readings = snapshot.temperatureReadings
+
+    // 1. Every reading has a non-empty and unique ID
+    let uniqueIds = Set(readings.map(\.id))
+    #expect(uniqueIds.count == readings.count, "Each reading must have a unique identifier")
+
+    // 2. Category exclusivity and sum equals total readings
+    let grouped = Dictionary(grouping: readings, by: \.category)
+    let sumCategoryCounts = SensorCategory.allCases.map { grouped[$0]?.count ?? 0 }.reduce(0, +)
+    #expect(sumCategoryCounts == readings.count, "Sum of category counts must equal total readings")
+
+    // On Apple M4 MacBook Air: exactly 43 channels (24 die, 10 device, 6 battery, 1 storage, 2 calibration)
+    #expect(readings.count == 43)
+    #expect(grouped[.siliconDie]?.count == 24)
+    #expect(grouped[.deviceNode]?.count == 10)
+    #expect(grouped[.battery]?.count == 6)
+    #expect(grouped[.storage]?.count == 1)
+    #expect(grouped[.calibration]?.count == 2)
+
     let summary = snapshot.temperatureSummary
-    #expect(summary.operatingSensorCount > 0)
+    #expect(summary.operatingSensorCount == 41)
+    #expect(summary.calibrationSensorCount == 2)
+    #expect(summary.dieSensorCount == 24)
+
     if let avg = summary.dieAverageC {
         #expect(avg >= 5.0 && avg <= 120.0)
     }
