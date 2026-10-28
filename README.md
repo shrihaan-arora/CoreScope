@@ -50,8 +50,9 @@ A native, on-demand hardware observability dashboard designed specifically for A
 
 ## Requirements
 
-- **Target Hardware**: Apple Silicon Mac (M1, M2, M3, M4 series). Tested on Apple MacBook Air (`Mac16,13`, Apple M4).
-- **Operating System**: macOS 13.0 (Ventura) or later (compatible with macOS 13 Ventura, macOS 14 Sonoma, and macOS 15 Sequoia).
+- **Target Hardware**: Apple Silicon Mac (M1, M2, M3, M4 series). Verified on Apple MacBook Air (`Mac16,13`, Apple M4).
+- **Minimum Deployment Target**: macOS 13.0 (Ventura) or later (`platforms: [.macOS(.v13)]`).
+- **Verified Runtime Environment**: macOS Sequoia 15.x on the Apple M4 MacBook Air (`Mac16,13`). Other macOS versions have not been independently runtime-tested unless supported by existing test evidence.
 - **Development Toolchain**: Xcode 15+ or Swift 6.0+ toolchain.
 - **Offline Integrity**: Zero external package dependencies (`dependencies: []`). Builds completely offline.
 
