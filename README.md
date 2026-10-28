@@ -51,7 +51,7 @@ You can customize bundle metadata via environment variables:
 BUNDLE_ID="io.custom.corescope" APP_VERSION="1.1.0" ./scripts/package-app.sh
 ```
 
-*Note on code signing*: The packaging script applies an ad-hoc code signature (`codesign --sign -`) to ensure bundle integrity on local macOS systems. Ad-hoc signing does **not** provide Apple Developer ID signing or Gatekeeper notarization.
+*Note on code signing and distribution*: The packaging script applies an ad-hoc code signature (`codesign --sign -`) to establish bundle code integrity for execution on the local build machine. Ad-hoc signing does **not** provide Apple Developer ID signing or Gatekeeper notarization. Normal external distribution to other macOS systems requires an Apple Developer account, an official Developer ID Application certificate, and completion of Apple's automated notarization ticket stapling workflow (`xcrun notarytool`). Do not disable macOS security protections or strip quarantine attributes to run untrusted binaries.
 
 ### 3. Run Automated Tests
 
