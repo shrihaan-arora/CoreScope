@@ -72,20 +72,65 @@ chmod 755 "${MACOS_DIR}/${APP_NAME}"
 echo "==> Writing PkgInfo..."
 printf "APPL????" > "${CONTENTS_DIR}/PkgInfo"
 
-# 7. Check for optional app icon
+# 7. Native Application Icon Generation & Bundling
+ICON_SRC="${REPO_ROOT}/Sources/CoreScope/Resources/CoreScopeAppIcon.png"
 ICON_PLIST_ENTRY=""
+
 if [[ -n "${ICON_PATH}" && -f "${ICON_PATH}" ]]; then
-    echo "==> Valid icon provided at ${ICON_PATH}. Copying to Resources..."
+    echo "==> Using explicit icon provided at ${ICON_PATH}..."
     cp "${ICON_PATH}" "${RESOURCES_DIR}/AppIcon.icns"
     ICON_PLIST_ENTRY="    <key>CFBundleIconFile</key>
     <string>AppIcon</string>"
+elif [[ -f "${ICON_SRC}" ]]; then
+    echo "==> Found source icon artwork at ${ICON_SRC}."
+    echo "==> Generating native macOS AppIcon.icns via sips and iconutil..."
+
+    # Verify sips and iconutil exist
+    if ! command -v sips &>/dev/null || ! command -v iconutil &>/dev/null; then
+        echo "ERROR: 'sips' and 'iconutil' are required for icon generation." >&2
+        exit 1
+    fi
+
+    # Verify input artwork is square and at least 1024x1024
+    SRC_WIDTH="$(sips -g pixelWidth "${ICON_SRC}" 2>/dev/null | awk '/pixelWidth:/ {print $2}')"
+    SRC_HEIGHT="$(sips -g pixelHeight "${ICON_SRC}" 2>/dev/null | awk '/pixelHeight:/ {print $2}')"
+    if [[ "${SRC_WIDTH}" -lt 1024 || "${SRC_HEIGHT}" -lt 1024 ]]; then
+        echo "ERROR: Icon artwork at ${ICON_SRC} must be at least 1024x1024 (got ${SRC_WIDTH}x${SRC_HEIGHT})." >&2
+        exit 1
+    fi
+    if [[ "${SRC_WIDTH}" -ne "${SRC_HEIGHT}" ]]; then
+        echo "ERROR: Icon artwork at ${ICON_SRC} must be square (got ${SRC_WIDTH}x${SRC_HEIGHT})." >&2
+        exit 1
+    fi
+
+    ICONSET_DIR="${OUTPUT_DIR}/AppIcon.iconset"
+    rm -rf "${ICONSET_DIR}"
+    mkdir -p "${ICONSET_DIR}"
+
+    sips -z 16 16     "${ICON_SRC}" --out "${ICONSET_DIR}/icon_16x16.png" >/dev/null
+    sips -z 32 32     "${ICON_SRC}" --out "${ICONSET_DIR}/icon_16x16@2x.png" >/dev/null
+    sips -z 32 32     "${ICON_SRC}" --out "${ICONSET_DIR}/icon_32x32.png" >/dev/null
+    sips -z 64 64     "${ICON_SRC}" --out "${ICONSET_DIR}/icon_32x32@2x.png" >/dev/null
+    sips -z 128 128   "${ICON_SRC}" --out "${ICONSET_DIR}/icon_128x128.png" >/dev/null
+    sips -z 256 256   "${ICON_SRC}" --out "${ICONSET_DIR}/icon_128x128@2x.png" >/dev/null
+    sips -z 256 256   "${ICON_SRC}" --out "${ICONSET_DIR}/icon_256x256.png" >/dev/null
+    sips -z 512 512   "${ICON_SRC}" --out "${ICONSET_DIR}/icon_256x256@2x.png" >/dev/null
+    sips -z 512 512   "${ICON_SRC}" --out "${ICONSET_DIR}/icon_512x512.png" >/dev/null
+    sips -z 1024 1024 "${ICON_SRC}" --out "${ICONSET_DIR}/icon_512x512@2x.png" >/dev/null
+
+    iconutil -c icns "${ICONSET_DIR}" -o "${RESOURCES_DIR}/AppIcon.icns"
+    rm -rf "${ICONSET_DIR}"
+
+    ICON_PLIST_ENTRY="    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>"
+    echo "==> AppIcon.icns created and bundled into ${RESOURCES_DIR}/AppIcon.icns"
 elif [[ -f "${REPO_ROOT}/Resources/AppIcon.icns" ]]; then
     echo "==> Found existing icon at Resources/AppIcon.icns. Copying..."
     cp "${REPO_ROOT}/Resources/AppIcon.icns" "${RESOURCES_DIR}/AppIcon.icns"
     ICON_PLIST_ENTRY="    <key>CFBundleIconFile</key>
     <string>AppIcon</string>"
 else
-    echo "==> No icon asset found or provided. Omitting CFBundleIconFile entry."
+    echo "==> No icon asset found. Omitting CFBundleIconFile entry."
 fi
 
 # 7b. Bundle local ambient background image

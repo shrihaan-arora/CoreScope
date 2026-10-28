@@ -25,6 +25,7 @@ A native, on-demand hardware observability dashboard designed specifically for A
   - **Calibration / Reference (`tcal`)**: Reference channels reported by Apple PMU firmware, strictly isolated from operating die averages.
 - **Power & Battery Health**: Reads active power mode (AC power vs. battery discharge), physical adapter connection, charging state, and battery percentage via `IOPowerSources` (`IOKit.ps`).
 - **Liquid Glass Visual Hierarchy**: Glassmorphic translucent cards, specular highlights, and color-coded telemetry bars built entirely in native SwiftUI.
+- **Native macOS App Icon**: Liquid-glass squircle icon featuring a stylized "C" waveform pulse compiled directly from 1024×1024 source artwork into native multi-resolution `AppIcon.icns`.
 - **Safe Local Asset Architecture**: Zero crash-prone `Bundle.module` access. Resolves `CoreScopeAmbient.png` locally with graceful dark-mode gradient fallback.
 - **On-Demand & Stateless**: Scanning runs off the UI thread upon opening or explicit user refresh. No continuous background polling, zero menu-bar extras, zero background daemons, and measured **0.0% idle CPU**.
 - **Clean Exit**: Closing the window cleanly terminates the application process.
