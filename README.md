@@ -8,7 +8,7 @@ A native, on-demand macOS hardware dashboard for Apple Silicon. CoreScope provid
 - **On-demand only**: No menu-bar extra, login item, daemon, launch agent, privileged helper, or continuous polling.
 - **Zero background overhead**: One scan when opened; one new scan only when the user presses **Refresh**.
 - **Responsive UI**: Scanning runs off the UI thread so the dashboard opens instantly.
-- **100% Private**: Zero network calls, analytics, accounts, or telemetry reporting.
+- **Local-only by design**: CoreScope is designed to make no intentional app-level network requests, has no telemetry or cloud backend, and reads hardware information locally. While this offline design significantly minimizes exposure, no software can guarantee absolute immunity from data leaks or every possible exploit.
 - **Truthful data**: Hardware values are never fabricated or estimated. If a sensor is inaccessible, the UI explains why.
 - **Clean exit**: Closing the window terminates the process.
 

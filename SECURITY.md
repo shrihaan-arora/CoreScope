@@ -1,8 +1,8 @@
 # Security and privacy model
 
-## Runtime behaviour
+## Local-only by design and runtime behaviour
 
-CoreScope is designed to read local hardware state only. The source code contains no intentional app-level network calls, `URLSession` invocations, web requests, analytics SDKs, login systems, cloud storage, remote configuration, shell/subprocess execution, auto-updaters, launch-at-login entries, daemons, or privileged helpers. The absence of intentional network capabilities significantly reduces the external attack surface, but does not constitute an absolute guarantee against every possible exploit, memory defect, or local security boundary issue in underlying macOS system libraries.
+CoreScope is local-only by design and structured to read local hardware state only. The source code contains no intentional app-level network calls, `URLSession` invocations, web requests, analytics SDKs, login systems, cloud storage, remote configuration, telemetry backends, shell/subprocess execution, auto-updaters, launch-at-login entries, daemons, or privileged helpers. All hardware metrics are sampled directly from local system interfaces. The absence of intentional network capabilities and remote telemetry significantly reduces the external attack surface, but does not constitute an absolute guarantee against data leaks, memory defects, or local security boundary issues in underlying macOS system libraries.
 
 Hardware sensor resources are managed strictly on demand: the HID event-system client (`IOHIDEventSystemClient`) and power-source handles are created specifically for each scan and released immediately after data collection. They are never retained across scans or held open for the lifetime of the process, nor are they installed as a system service. There is no background timer, file watcher, or continuous sensor polling loop: the application takes one scan upon opening and refreshes only when the user explicitly clicks **Refresh**.
 
