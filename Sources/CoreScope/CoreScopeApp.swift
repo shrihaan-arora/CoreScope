@@ -61,7 +61,7 @@ struct CoreScopeApp: App {
     }
 
     private var initialSectionForLaunch: DashboardSection {
-        if CommandLine.arguments.contains("--session") {
+        if CommandLine.arguments.contains("--session") || CommandLine.arguments.contains("--session-idle") || CommandLine.arguments.contains("--session-completed") {
             return .thermalSession
         } else if CommandLine.arguments.contains("--sensors") {
             return .sensors
@@ -87,8 +87,56 @@ struct CoreScopeApp: App {
     }
 
     private func captureSelfToScreenshots() {
+        let isSessionIdleMode = CommandLine.arguments.contains("--session-idle")
+        let isSessionCompletedMode = CommandLine.arguments.contains("--session-completed")
         let isSessionMode = CommandLine.arguments.contains("--session")
         let isSensorsMode = CommandLine.arguments.contains("--sensors")
+
+        if isSessionIdleMode {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                guard let window = NSApplication.shared.windows.first(where: { $0.isVisible }),
+                      let view = window.contentView else {
+                    exit(1)
+                }
+                let outDir = "docs/screenshots"
+                try? FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
+                guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+                    exit(1)
+                }
+                view.cacheDisplay(in: view.bounds, to: rep)
+                if let png = rep.representation(using: .png, properties: [:]) {
+                    try? png.write(to: URL(fileURLWithPath: "\(outDir)/thermal_session_idle.png"))
+                    print("Self-captured thermal session idle to \(outDir)/thermal_session_idle.png (\(png.count) bytes)")
+                }
+                exit(0)
+            }
+            return
+        }
+
+        if isSessionCompletedMode {
+            model.session.startSession(duration: .seconds30)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                model.session.stopSession()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    guard let window = NSApplication.shared.windows.first(where: { $0.isVisible }),
+                          let view = window.contentView else {
+                        exit(1)
+                    }
+                    let outDir = "docs/screenshots"
+                    try? FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
+                    guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+                        exit(1)
+                    }
+                    view.cacheDisplay(in: view.bounds, to: rep)
+                    if let png = rep.representation(using: .png, properties: [:]) {
+                        try? png.write(to: URL(fileURLWithPath: "\(outDir)/thermal_session_completed.png"))
+                        print("Self-captured thermal session completed to \(outDir)/thermal_session_completed.png (\(png.count) bytes)")
+                    }
+                    exit(0)
+                }
+            }
+            return
+        }
 
         if isSessionMode {
             // Start recording session and capture chart after samples arrive

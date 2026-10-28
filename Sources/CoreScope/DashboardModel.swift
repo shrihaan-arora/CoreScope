@@ -9,11 +9,20 @@ final class DashboardModel: ObservableObject {
 
     let session: ThermalSessionModel
     private let probe: SensorProbe
+    private var cancellables = Set<AnyCancellable>()
 
     init(snapshot: SensorSnapshot? = nil, session: ThermalSessionModel? = nil, probe: SensorProbe = SensorProbe()) {
         self.snapshot = snapshot
-        self.session = session ?? ThermalSessionModel()
+        let s = session ?? ThermalSessionModel()
+        self.session = s
         self.probe = probe
+
+        s.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
     }
 
     func refresh() {

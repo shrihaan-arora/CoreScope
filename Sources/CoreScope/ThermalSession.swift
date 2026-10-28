@@ -28,6 +28,24 @@ enum ThermalSessionDuration: Equatable, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    var displayLabel: String {
+        switch self {
+        case .seconds30: return "30 Seconds"
+        case .minutes2:  return "2 Minutes"
+        case .minutes5:  return "5 Minutes"
+        case .manual:    return "Manual Stop"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .seconds30: return "Quick Check"
+        case .minutes2:  return "Standard Test"
+        case .minutes5:  return "Sustained Load"
+        case .manual:    return "Stop Anytime"
+        }
+    }
+
     static var allCases: [ThermalSessionDuration] {
         [.seconds30, .minutes2, .minutes5, .manual]
     }
@@ -106,7 +124,14 @@ struct ThermalSample: Identifiable, Sendable, Equatable {
         self.thermalState = thermalState
         let tp = thermalPressure ?? (ThermalPressureState(rawValue: thermalState) ?? .nominal)
         self.thermalPressure = tp
-        self.throttlingInference = throttlingInference ?? (tp.isThrottlingLikely ? .possibleThermalReduction : .normalOperation)
+        self.throttlingInference = throttlingInference ?? {
+            switch tp {
+            case .nominal: return .normalOperation
+            case .fair: return .thermalPressureElevated
+            case .serious, .critical: return .possibleThermalReduction
+            case .unknown: return .insufficientTelemetry
+            }
+        }()
         self.powerMode = powerMode
         self.isCharging = isCharging
         self.batteryPercent = batteryPercent

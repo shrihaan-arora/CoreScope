@@ -413,12 +413,59 @@ private func makeMockSnapshot(
     }
 }
 
+@Test func testAppIconAndAmbientResourceIntegrity() throws {
+    // 1. Verify AppIcon artwork exists and meets 1024x1024 macOS icon requirements
+    let iconURL = URL(fileURLWithPath: "Sources/CoreScope/Resources/CoreScopeAppIcon.png")
+    #expect(FileManager.default.fileExists(atPath: iconURL.path))
+    if let img = NSImage(contentsOf: iconURL) {
+        #expect(img.isValid)
+        let reps = img.representations
+        if let first = reps.first {
+            #expect(first.pixelsWide >= 1024)
+            #expect(first.pixelsHigh >= 1024)
+        }
+    }
+
+    // 2. Verify Ambient background asset exists
+    let ambientURL = URL(fileURLWithPath: "Sources/CoreScope/Resources/CoreScopeAmbient.png")
+    #expect(FileManager.default.fileExists(atPath: ambientURL.path))
+    if let img = NSImage(contentsOf: ambientURL) {
+        #expect(img.isValid)
+    }
+}
+
 @Test func testThermalSessionDurationCases() throws {
     #expect(ThermalSessionDuration.seconds30.seconds == 30.0)
     #expect(ThermalSessionDuration.minutes2.seconds == 120.0)
     #expect(ThermalSessionDuration.minutes5.seconds == 300.0)
     #expect(ThermalSessionDuration.manual.seconds == nil)
     #expect(ThermalSessionDuration.allCases.count == 4)
+
+    #expect(ThermalSessionDuration.seconds30.displayLabel == "30 Seconds")
+    #expect(ThermalSessionDuration.seconds30.subtitle == "Quick Check")
+    #expect(ThermalSessionDuration.minutes2.displayLabel == "2 Minutes")
+    #expect(ThermalSessionDuration.minutes2.subtitle == "Standard Test")
+    #expect(ThermalSessionDuration.minutes5.displayLabel == "5 Minutes")
+    #expect(ThermalSessionDuration.minutes5.subtitle == "Sustained Load")
+    #expect(ThermalSessionDuration.manual.displayLabel == "Manual Stop")
+    #expect(ThermalSessionDuration.manual.subtitle == "Stop Anytime")
+}
+
+@Test func testThermalSampleInferenceDefaultsAcrossStates() throws {
+    let sNominal = ThermalSample(elapsedSeconds: 0, peakDieTemp: 45, peakDieSensorName: "tdie1", averageDieTemp: 42, operatingChannelCount: 20, thermalState: "Nominal", thermalPressure: .nominal, powerMode: .battery, isCharging: false, batteryPercent: 90)
+    #expect(sNominal.throttlingInference == .normalOperation)
+
+    let sFair = ThermalSample(elapsedSeconds: 0, peakDieTemp: 45, peakDieSensorName: "tdie1", averageDieTemp: 42, operatingChannelCount: 20, thermalState: "Fair", thermalPressure: .fair, powerMode: .battery, isCharging: false, batteryPercent: 90)
+    #expect(sFair.throttlingInference == .thermalPressureElevated)
+
+    let sSerious = ThermalSample(elapsedSeconds: 0, peakDieTemp: 45, peakDieSensorName: "tdie1", averageDieTemp: 42, operatingChannelCount: 20, thermalState: "Serious", thermalPressure: .serious, powerMode: .battery, isCharging: false, batteryPercent: 90)
+    #expect(sSerious.throttlingInference == .possibleThermalReduction)
+
+    let sCritical = ThermalSample(elapsedSeconds: 0, peakDieTemp: 45, peakDieSensorName: "tdie1", averageDieTemp: 42, operatingChannelCount: 20, thermalState: "Critical", thermalPressure: .critical, powerMode: .battery, isCharging: false, batteryPercent: 90)
+    #expect(sCritical.throttlingInference == .possibleThermalReduction)
+
+    let sUnknown = ThermalSample(elapsedSeconds: 0, peakDieTemp: 45, peakDieSensorName: "tdie1", averageDieTemp: 42, operatingChannelCount: 20, thermalState: "Unknown", thermalPressure: .unknown, powerMode: .battery, isCharging: false, batteryPercent: 90)
+    #expect(sUnknown.throttlingInference == .insufficientTelemetry)
 }
 
 @Test func testThermalSessionCancellationDuringShutdown() async throws {

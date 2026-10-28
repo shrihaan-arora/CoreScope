@@ -104,6 +104,13 @@ struct DashboardView: View {
                             icon: "record.circle",
                             color: LiquidGlassStyle.emerald
                         )
+                    } else if model.session.state == .completed {
+                        StatusIndicator(
+                            title: "COMPLETED",
+                            subtitle: "\(model.session.samples.count) samples",
+                            icon: "checkmark.circle",
+                            color: LiquidGlassStyle.violetTint
+                        )
                     } else {
                         StatusIndicator(
                             title: "ON-DEMAND",
