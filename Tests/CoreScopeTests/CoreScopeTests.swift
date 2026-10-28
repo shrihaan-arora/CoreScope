@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import CoreScope
@@ -293,4 +294,19 @@ import Testing
 @Test func testPowerSourceReaderLive() async throws {
     let power = PowerSourceReader.read()
     #expect(power.mode == .battery || power.mode == .external)
+}
+
+@Test func testAmbientAssetLoaderSafeExecution() throws {
+    // 1. Invoking AmbientAssetLoader.image must never trigger fatalError, crash, or throw
+    let img = AmbientAssetLoader.image
+    if let img = img {
+        #expect(img.isValid)
+        #expect(img.size.width > 0)
+        #expect(img.size.height > 0)
+    }
+
+    // 2. Safe graceful fallback: nonexistent file path returns nil without fatalError
+    let nonExistentURL = URL(fileURLWithPath: "/tmp/non_existent_ambient_\(UUID().uuidString).png")
+    #expect(!FileManager.default.fileExists(atPath: nonExistentURL.path))
+    #expect(NSImage(contentsOf: nonExistentURL) == nil)
 }

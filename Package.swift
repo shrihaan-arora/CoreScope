@@ -22,6 +22,9 @@ let package = Package(
         .executableTarget(
             name: "CoreScope",
             dependencies: ["CIOHIDSensors"],
+            resources: [
+                .process("Resources")
+            ],
             linkerSettings: [
                 .linkedFramework("IOKit")
             ]

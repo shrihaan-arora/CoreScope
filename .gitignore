@@ -20,3 +20,9 @@ xcuserdata/
 *.log
 *.tmp
 *.swp
+
+# Packaging Output
+build/
+dist/
+*.app/
+*.zip

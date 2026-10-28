@@ -18,25 +18,47 @@ A native, on-demand macOS hardware dashboard for Apple Silicon. CoreScope provid
 - Xcode 15+ or matching Swift 6 toolchain.
 - No internet access required — builds completely offline with zero package dependencies.
 
-## Run CoreScope
+## Build and Run
 
-1. Open Terminal and navigate to the project directory:
+### 1. Run in Development Mode
 
-   ```sh
-   cd CoreScope
-   ```
+Run the native SwiftUI application directly:
+```sh
+swift run CoreScope
+```
 
-2. Build and run the GUI application:
+Or run the headless CLI probe to inspect sensor channels in Terminal:
+```sh
+swift run CoreScope --cli
+```
 
-   ```sh
-   swift run CoreScope
-   ```
+### 2. Package into a Native macOS Application (.app)
 
-3. Or run the headless CLI probe to inspect sensor output directly in Terminal:
+CoreScope includes a reproducible packaging script that builds the release binary with Swift Package Manager, structures a standard `CoreScope.app` bundle, generates `Info.plist`, applies an ad-hoc signature, and creates an optional ZIP archive:
 
-   ```sh
-   swift run CoreScope --cli
-   ```
+```sh
+./scripts/package-app.sh
+```
+
+Launch the packaged application:
+```sh
+open build/CoreScope.app
+```
+
+#### Customizing the Bundle Identifier
+You can customize bundle metadata via environment variables:
+```sh
+BUNDLE_ID="io.custom.corescope" APP_VERSION="1.1.0" ./scripts/package-app.sh
+```
+
+*Note on code signing*: The packaging script applies an ad-hoc code signature (`codesign --sign -`) to ensure bundle integrity on local macOS systems. Ad-hoc signing does **not** provide Apple Developer ID signing or Gatekeeper notarization.
+
+### 3. Run Automated Tests
+
+Execute the complete test suite (both synthetic invariant tests and live Apple Silicon hardware probe checks):
+```sh
+swift test
+```
 
 ## Hardware Telemetry Architecture
 
@@ -50,6 +72,8 @@ Apple Silicon exposes hardware thermal nodes via the local IOKit HID Event Syste
   - **Battery (`battery` / `gas gauge`)**: Battery pack thermal sensors.
   - **Storage (`nand` / `storage`)**: NVMe and NAND flash storage controller sensors.
   - **Calibration / Reference (`tcal`)**: Reference channels reported by Apple PMU firmware. These are strictly isolated from operating die averages. CoreScope does not speculate on internal PMU calibration register designs without official technical documentation.
+
+Sensor resources follow an on-demand lifecycle: `IOHIDEventSystemClient` and matching service handles are instantiated strictly for the duration of a scan and released immediately after reading. No sensor clients or timers remain active while the dashboard is idle.
 
 ### Power & Battery
 Power status is gathered via Apple's public `IOPowerSources` (`IOKit.ps`) API, accurately distinguishing between:
