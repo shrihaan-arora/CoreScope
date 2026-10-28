@@ -6,8 +6,12 @@ private enum CoreScopeStyle {
     static let violet = Color(red: 0.63, green: 0.48, blue: 0.96)
     static let amber = Color(red: 0.97, green: 0.68, blue: 0.27)
     static let coral = Color(red: 0.95, green: 0.36, blue: 0.36)
+    static let slate = Color(red: 0.55, green: 0.60, blue: 0.68)
 
-    static func tempColor(for tempC: Double) -> Color {
+    static func tempColor(for tempC: Double, isCalibration: Bool = false) -> Color {
+        if isCalibration {
+            return violet
+        }
         if tempC < 45.0 {
             return mint
         } else if tempC < 65.0 {
@@ -27,7 +31,8 @@ struct DashboardView: View {
 
     var body: some View {
         ZStack {
-            Color.primary.opacity(0.025).ignoresSafeArea()
+            // Adaptive background supporting both Light and Dark macOS modes
+            Color(nsColor: .windowBackgroundColor).ignoresSafeArea()
             ambientGlow
 
             ScrollView {
@@ -49,10 +54,10 @@ struct DashboardView: View {
     private var ambientGlow: some View {
         GeometryReader { proxy in
             Circle()
-                .fill(CoreScopeStyle.accent.opacity(0.08))
-                .frame(width: 460, height: 460)
-                .blur(radius: 90)
-                .position(x: proxy.size.width * 0.84, y: 24)
+                .fill(CoreScopeStyle.accent.opacity(0.06))
+                .frame(width: 480, height: 480)
+                .blur(radius: 100)
+                .position(x: proxy.size.width * 0.85, y: 30)
                 .allowsHitTesting(false)
         }
         .ignoresSafeArea()
@@ -63,19 +68,19 @@ struct DashboardView: View {
     private var header: some View {
         HStack(spacing: 14) {
             ZStack {
-                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(LinearGradient(
                         colors: [CoreScopeStyle.accent, CoreScopeStyle.violet],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ))
                 Image(systemName: "waveform.path.ecg")
-                    .font(.system(size: 23, weight: .semibold))
+                    .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(.white)
             }
-            .frame(width: 48, height: 48)
+            .frame(width: 46, height: 46)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text("CoreScope")
                     .font(.system(size: 24, weight: .bold, design: .rounded))
                 Text("APPLE SILICON · NATIVE HARDWARE TELEMETRY")
@@ -84,7 +89,7 @@ struct DashboardView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Spacer(minLength: 18)
+            Spacer(minLength: 16)
 
             HStack(spacing: 7) {
                 Circle().fill(CoreScopeStyle.mint).frame(width: 7, height: 7)
@@ -93,7 +98,7 @@ struct DashboardView: View {
                     .tracking(0.8)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 9)
+            .padding(.vertical, 8)
             .background(.thinMaterial, in: Capsule())
             .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
 
@@ -103,17 +108,18 @@ struct DashboardView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.clockwise")
                         .rotationEffect(.degrees(model.isRefreshing ? 180 : 0))
+                        .animation(model.isRefreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: model.isRefreshing)
                     Text(model.isRefreshing ? "Scanning…" : "Refresh")
                 }
                 .font(.system(size: 12, weight: .semibold))
                 .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 12))
+                .padding(.vertical, 9)
+                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.08)))
             }
             .buttonStyle(.plain)
             .disabled(model.isRefreshing)
-            .help("Take one new reading. No background daemon or continuous polling.")
+            .help("Execute one hardware scan. Zero continuous background polling.")
         }
     }
 
@@ -121,7 +127,7 @@ struct DashboardView: View {
 
     private var hero: some View {
         HStack(alignment: .center, spacing: 20) {
-            VStack(alignment: .leading, spacing: 11) {
+            VStack(alignment: .leading, spacing: 10) {
                 Text("LOCAL HARDWARE MONITOR")
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .tracking(1.6)
@@ -132,7 +138,7 @@ struct DashboardView: View {
                     .tracking(-0.8)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("Independent Apple Silicon temperature probe. Zero external dependencies. Zero fake data.")
+                Text("Independent Apple Silicon thermal and power probe. Zero external dependencies. Zero fake values.")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -141,16 +147,17 @@ struct DashboardView: View {
             Spacer(minLength: 12)
 
             VStack(alignment: .trailing, spacing: 8) {
-                Text("POWER TELEMETRY")
+                Text("ACTIVE POWER SOURCE")
                     .font(.system(size: 9, weight: .bold, design: .rounded))
                     .tracking(1.1)
                     .foregroundStyle(.secondary)
+
                 HStack(spacing: 12) {
                     Image(systemName: powerIcon)
                         .font(.system(size: 24, weight: .medium))
                         .foregroundStyle(powerColor)
                     VStack(alignment: .trailing, spacing: 3) {
-                        Text(model.snapshot?.powerMode.rawValue ?? "Reading power state")
+                        Text(powerHeadline)
                             .font(.system(size: 15, weight: .semibold, design: .rounded))
                         Text(powerSubtitle)
                             .font(.system(size: 11))
@@ -158,7 +165,7 @@ struct DashboardView: View {
                     }
                 }
                 .padding(16)
-                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.primary.opacity(0.07)))
             }
         }
@@ -176,38 +183,53 @@ struct DashboardView: View {
                     TemperatureUnavailableCard(explanation: snapshot.temperatureStatus.explanation)
                 } else {
                     let readings = snapshot.temperatureReadings
-                    let maxTemp = readings.map(\.temperatureC).max() ?? 0
-                    let avgTemp = readings.reduce(0.0) { $0 + $1.temperatureC } / Double(max(1, readings.count))
+                    let summary = snapshot.temperatureSummary
 
-                    // Summary metric cards
+                    // Summary metric cards — with honest labels and calibrated die-only calculations
                     HStack(spacing: 14) {
                         SummaryMetricChip(
-                            title: "PEAK SENSOR TEMP",
-                            value: String(format: "%.1f °C", maxTemp),
-                            subtitle: peakSensorName(in: readings, peak: maxTemp),
-                            accent: CoreScopeStyle.tempColor(for: maxTemp)
+                            title: "PEAK DIE SENSOR",
+                            value: summary.peakDieReading.map { String(format: "%.1f °C", $0.temperatureC) } ?? "Unavailable",
+                            subtitle: summary.peakDieReading?.sensorName ?? "No active die sensors",
+                            accent: summary.peakDieReading.map { CoreScopeStyle.tempColor(for: $0.temperatureC) } ?? .secondary
                         )
 
                         SummaryMetricChip(
-                            title: "DIE AVERAGE",
-                            value: String(format: "%.1f °C", avgTemp),
-                            subtitle: "\(readings.count) active PMU channels",
-                            accent: CoreScopeStyle.tempColor(for: avgTemp)
+                            title: "DIE SENSOR AVERAGE",
+                            value: summary.dieAverageC.map { String(format: "%.1f °C", $0) } ?? "Unavailable",
+                            subtitle: "\(summary.dieSensorCount) active die channels (excludes device/ref)",
+                            accent: summary.dieAverageC.map { CoreScopeStyle.tempColor(for: $0) } ?? .secondary
                         )
 
                         SummaryMetricChip(
-                            title: "TELEMETRY SOURCE",
-                            value: "Apple PMU",
-                            subtitle: "IOHIDEventServices (0xFF00:5)",
+                            title: "OPERATING CHANNELS",
+                            value: "\(summary.operatingSensorCount)",
+                            subtitle: summary.calibrationSensorCount > 0
+                                ? "Apple PMU · \(summary.calibrationSensorCount) reference isolated"
+                                : "Apple PMU (0xFF00:5)",
                             accent: CoreScopeStyle.mint
                         )
                     }
 
-                    // Category filter bar & Search
+                    // Category filter tabs & Search
                     HStack(spacing: 10) {
                         categoryFilterTabs(readings: readings)
                         Spacer()
                         searchBar
+                    }
+
+                    // Special informative notice when viewing Calibration / Reference sensors
+                    if selectedCategory == SensorCategory.calibration.rawValue {
+                        HStack(spacing: 10) {
+                            Image(systemName: "info.circle.fill")
+                                .foregroundStyle(CoreScopeStyle.violet)
+                            Text("Calibration reference channels (e.g. tcal) reflect factory calibration setpoints and are isolated from operating die averages.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(CoreScopeStyle.violet.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
                     }
 
                     // Filtered readings grid
@@ -216,13 +238,19 @@ struct DashboardView: View {
                     if filtered.isEmpty {
                         HStack {
                             Spacer()
-                            Text("No sensors match \"\(searchText)\" in category \"\(selectedCategory)\"")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                                .padding(24)
+                            VStack(spacing: 8) {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(.tertiary)
+                                Text("No sensors match \"\(searchText)\" in category \"\(selectedCategory)\"")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(32)
                             Spacer()
                         }
                         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.primary.opacity(0.06)))
                     } else {
                         let columns = [
                             GridItem(.adaptive(minimum: 240, maximum: 360), spacing: 12)
@@ -250,42 +278,41 @@ struct DashboardView: View {
         }
     }
 
-    private func peakSensorName(in readings: [TemperatureReading], peak: Double) -> String {
-        if let match = readings.first(where: { abs($0.temperatureC - peak) < 0.01 }) {
-            return match.sensorName
-        }
-        return "Peak channel"
-    }
-
     private func categoryFilterTabs(readings: [TemperatureReading]) -> some View {
-        let categories = ["All"] + Array(Set(readings.map(\.category))).sorted()
+        let presentCategories = Array(Set(readings.map(\.category))).sorted()
+        let allOptions: [String] = ["All"] + presentCategories.map(\.rawValue)
 
-        return HStack(spacing: 6) {
-            ForEach(categories, id: \.self) { cat in
-                let count = cat == "All" ? readings.count : readings.filter { $0.category == cat }.count
-                Button {
-                    selectedCategory = cat
-                } label: {
-                    HStack(spacing: 5) {
-                        Text(cat)
-                            .fontWeight(selectedCategory == cat ? .semibold : .regular)
-                        Text("\(count)")
-                            .font(.system(size: 10, design: .monospaced))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(
-                                Capsule().fill(selectedCategory == cat ? Color.white.opacity(0.2) : Color.primary.opacity(0.06))
-                            )
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(allOptions, id: \.self) { catName in
+                    let count = catName == "All"
+                        ? readings.count
+                        : readings.filter { $0.category.rawValue == catName }.count
+
+                    Button {
+                        selectedCategory = catName
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text(catName)
+                                .fontWeight(selectedCategory == catName ? .semibold : .regular)
+                            Text("\(count)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule().fill(selectedCategory == catName ? Color.white.opacity(0.25) : Color.primary.opacity(0.06))
+                                )
+                        }
+                        .font(.system(size: 11))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule().fill(selectedCategory == catName ? CoreScopeStyle.accent : Color.primary.opacity(0.04))
+                        )
+                        .foregroundStyle(selectedCategory == catName ? Color.white : Color.primary)
                     }
-                    .font(.system(size: 11))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule().fill(selectedCategory == cat ? CoreScopeStyle.accent : Color.primary.opacity(0.04))
-                    )
-                    .foregroundStyle(selectedCategory == cat ? Color.white : Color.primary)
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
     }
@@ -313,11 +340,12 @@ struct DashboardView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.06)))
     }
 
     private func filteredReadings(_ readings: [TemperatureReading]) -> [TemperatureReading] {
         readings.filter { reading in
-            let matchesCategory = selectedCategory == "All" || reading.category == selectedCategory
+            let matchesCategory = selectedCategory == "All" || reading.category.rawValue == selectedCategory
             let matchesSearch = searchText.isEmpty || reading.sensorName.localizedCaseInsensitiveContains(searchText)
             return matchesCategory && matchesSearch
         }
@@ -348,8 +376,8 @@ struct DashboardView: View {
                 )
 
                 StatusCard(
-                    title: "BATTERY",
-                    icon: "battery.75percent",
+                    title: "BATTERY & POWER",
+                    icon: batteryIcon,
                     value: batteryHeadline,
                     detail: batteryDetail,
                     accent: CoreScopeStyle.mint
@@ -429,51 +457,88 @@ struct DashboardView: View {
         }
     }
 
+    private var powerHeadline: String {
+        guard let snapshot = model.snapshot else { return "Reading power state" }
+        return snapshot.powerMode.rawValue
+    }
+
     private var powerSubtitle: String {
         guard let snapshot = model.snapshot else { return "Waiting for first scan" }
         if snapshot.powerMode == .external {
-            if snapshot.isCharging == true { return "Adapter connected · battery charging" }
+            if snapshot.isCharging == true {
+                return "Adapter connected · Battery charging"
+            }
             if snapshot.isCharging == false {
                 if snapshot.isAdapterConnected == true {
-                    return "Adapter connected · not charging (charge hold or full)"
+                    return "Adapter connected · Charge hold or complete"
                 }
-                return "Adapter connected · not charging"
+                return "External power · Battery not charging"
             }
-            return "System is drawing external power"
+            return "System is drawing external AC power"
         }
         if snapshot.powerMode == .battery {
             if snapshot.isAdapterConnected == true {
-                return "Adapter present · drawing battery power"
+                return "Adapter attached · Drawing battery power"
             }
-            return "System is drawing battery power"
+            return "System is discharging on battery power"
         }
-        return "Could not determine the active source"
+        return "Power source could not be determined"
     }
 
     private var batteryHeadline: String {
-        guard let percent = model.snapshot?.batteryPercent else {
+        guard let snapshot = model.snapshot else {
             return model.isRefreshing ? "Reading…" : "Unavailable"
         }
-        return "\(percent)%"
+        if let percent = snapshot.batteryPercent {
+            if snapshot.isCharging == true {
+                return "\(percent)% · Charging"
+            } else if snapshot.powerMode == .external {
+                return "\(percent)% · Connected"
+            } else {
+                return "\(percent)% · Discharging"
+            }
+        }
+        return snapshot.powerMode == .external ? "AC Connected (No Battery)" : "Unavailable"
+    }
+
+    private var batteryIcon: String {
+        guard let snapshot = model.snapshot else { return "battery.75percent" }
+        if snapshot.isCharging == true {
+            return "battery.100percent.bolt"
+        }
+        guard let pct = snapshot.batteryPercent else {
+            return snapshot.powerMode == .external ? "powerplug.fill" : "battery.0percent"
+        }
+        if pct > 80 { return "battery.100percent" }
+        if pct > 50 { return "battery.75percent" }
+        if pct > 25 { return "battery.50percent" }
+        return "battery.25percent"
     }
 
     private var batteryDetail: String {
         guard let snapshot = model.snapshot else { return "Battery details appear after the first scan" }
-        if snapshot.isCharging == true { return "Charging from external power" }
-        if snapshot.isCharging == false && snapshot.powerMode == .external {
-            return "Connected to power · charge on hold or complete"
+        if snapshot.isCharging == true {
+            return "Battery is actively charging from external AC adapter"
         }
-        if snapshot.powerMode == .battery { return "Running on battery" }
+        if snapshot.isCharging == false && snapshot.powerMode == .external {
+            return "Connected to AC power · Charge on hold or complete"
+        }
+        if snapshot.powerMode == .battery {
+            return "Running on battery · Discharging"
+        }
+        if snapshot.batteryPercent == nil && snapshot.powerMode == .external {
+            return "Desktop Mac or external power with no battery present"
+        }
         return "Charging state not reported"
     }
 
     private var thermalDetail: String {
         switch model.snapshot?.thermalState {
-        case "Nominal": "No elevated thermal pressure reported"
-        case "Fair": "Some thermal pressure reported by macOS"
+        case "Nominal": "Operating normally with no elevated thermal pressure"
+        case "Fair": "Moderate thermal pressure reported by macOS"
         case "Serious": "High thermal pressure reported by macOS"
         case "Critical": "Critical thermal pressure reported by macOS"
-        case .none: "Read from ProcessInfo thermal state"
+        case .none: "Read directly from ProcessInfo thermal state"
         default: "Thermal state reported by macOS"
         }
     }
@@ -526,8 +591,12 @@ private struct SummaryMetricChip: View {
 private struct SensorPillCard: View {
     let reading: TemperatureReading
 
+    private var isCalibration: Bool {
+        reading.category == .calibration
+    }
+
     private var tempColor: Color {
-        CoreScopeStyle.tempColor(for: reading.temperatureC)
+        CoreScopeStyle.tempColor(for: reading.temperatureC, isCalibration: isCalibration)
     }
 
     var body: some View {
@@ -542,7 +611,7 @@ private struct SensorPillCard: View {
                         .foregroundStyle(tempColor)
                     Text("°C")
                         .font(.system(size: 9, weight: .semibold, design: .rounded))
-                        .foregroundStyle(tempColor.opacity(0.8))
+                        .foregroundStyle(tempColor.opacity(0.85))
                 }
             }
             .frame(width: 54, height: 44)
@@ -555,7 +624,7 @@ private struct SensorPillCard: View {
                     .foregroundStyle(.primary)
 
                 HStack(spacing: 6) {
-                    Text(reading.category)
+                    Text(reading.category.rawValue)
                         .font(.system(size: 9, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
 
@@ -573,7 +642,7 @@ private struct SensorPillCard: View {
                                 .frame(width: max(4, min(geo.size.width, geo.size.width * CGFloat(reading.temperatureC / 100.0))))
                         }
                     }
-                    .frame(width: 48, height: 4)
+                    .frame(width: 44, height: 4)
                 }
             }
 

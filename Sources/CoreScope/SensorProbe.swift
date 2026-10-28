@@ -25,6 +25,11 @@ struct SensorSnapshot: Sendable {
     let thermalState: String
     /// When this snapshot was collected.
     let sampledAt: Date
+
+    /// Operating temperature summary isolating die sensors and excluding calibration channels.
+    var temperatureSummary: TemperatureSummary {
+        TemperatureSummary(readings: temperatureReadings)
+    }
 }
 
 /// Describes the outcome of the temperature probe.
@@ -123,7 +128,7 @@ struct SensorProbe: Sendable {
 
 // MARK: - Power Source Reader
 
-struct PowerSnapshot: Sendable {
+struct PowerSnapshot: Sendable, Equatable {
     let mode: PowerMode
     let batteryPercent: Int?
     let isCharging: Bool?
@@ -140,6 +145,23 @@ enum PowerSourceReader {
         let sourceType = IOPSGetProvidingPowerSourceType(info)?
             .takeUnretainedValue() as String?
 
+        let sources = IOPSCopyPowerSourcesList(info)
+            .takeRetainedValue() as [CFTypeRef]
+
+        var descriptions: [[String: Any]] = []
+        for source in sources {
+            if let desc = IOPSGetPowerSourceDescription(info, source)?
+                .takeUnretainedValue() as? [String: Any] {
+                descriptions.append(desc)
+            }
+        }
+
+        return parse(sourceType: sourceType, descriptions: descriptions)
+    }
+
+    /// Pure parsing logic decoupled from IOKit handles for testing.
+    /// Distinguishes between adapter connection and active charging.
+    static func parse(sourceType: String?, descriptions: [[String: Any]]) -> PowerSnapshot {
         let mode: PowerMode
         switch sourceType {
         case "AC Power":      mode = .external
@@ -151,13 +173,7 @@ enum PowerSourceReader {
         var isCharging: Bool?
         var isAdapterConnected: Bool?
 
-        let sources = IOPSCopyPowerSourcesList(info)
-            .takeRetainedValue() as [CFTypeRef]
-
-        for source in sources {
-            guard let description = IOPSGetPowerSourceDescription(info, source)?
-                .takeUnretainedValue() as? [String: Any] else { continue }
-
+        for description in descriptions {
             // Battery percentage
             if let current = description["Current Capacity"] as? NSNumber,
                let maximum = description["Max Capacity"] as? NSNumber,
@@ -166,16 +182,12 @@ enum PowerSourceReader {
                 batteryPercent = max(0, min(100, Int(pct)))
             }
 
-            // Charging state — explicitly distinguish "connected but not
-            // charging" from "drawing battery power".
+            // Charging state
             if let charging = description["Is Charging"] as? NSNumber {
                 isCharging = charging.boolValue
             }
 
-            // Adapter presence — reported separately from charging state.
-            // "Power Source State" == "AC Power" indicates a connected
-            // adapter even when the battery is not actively charging
-            // (e.g., charge hold at 80 %).
+            // Adapter presence — distinct from charging state
             if let psState = description["Power Source State"] as? String {
                 isAdapterConnected = (psState == "AC Power")
             }

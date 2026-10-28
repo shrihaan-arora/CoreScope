@@ -3,28 +3,93 @@ import CIOHIDSensors
 
 // MARK: - Public Data Types
 
+/// High-level hardware subsystem category derived from Apple PMU naming conventions.
+enum SensorCategory: String, CaseIterable, Identifiable, Sendable, Comparable {
+    case siliconDie = "Silicon Die"
+    case deviceNode = "Device Node"
+    case battery = "Battery"
+    case storage = "Storage"
+    case calibration = "Calibration / Reference"
+    case system = "System"
+
+    var id: String { rawValue }
+
+    static func < (lhs: SensorCategory, rhs: SensorCategory) -> Bool {
+        let order: [SensorCategory] = [.siliconDie, .deviceNode, .battery, .storage, .calibration, .system]
+        let lIdx = order.firstIndex(of: lhs) ?? 99
+        let rIdx = order.firstIndex(of: rhs) ?? 99
+        return lIdx < rIdx
+    }
+}
+
 /// A single validated temperature reading from an Apple Silicon PMU sensor.
-struct TemperatureReading: Identifiable, Sendable {
-    /// The raw HID service product name (e.g. "PMU tdie1", "PMU tdev3").
+struct TemperatureReading: Identifiable, Sendable, Equatable {
+    /// The raw HID service product name (e.g. "PMU tdie1", "PMU tdev3", "PMU tcal").
     let sensorName: String
     /// Temperature in degrees Celsius, validated to the range 5–120 °C.
     let temperatureC: Double
 
     var id: String { sensorName }
 
-    /// High-level hardware subsystem category derived from Apple PMU naming conventions.
-    var category: String {
+    /// Subsystem classification based purely on Apple PMU channel conventions.
+    /// Does NOT fabricate CPU/GPU core mappings.
+    var category: SensorCategory {
+        Self.classify(sensorName: sensorName)
+    }
+
+    /// Classify raw PMU sensor descriptor into functional subsystem.
+    static func classify(sensorName: String) -> SensorCategory {
         let lower = sensorName.lowercased()
-        if lower.contains("battery") {
-            return "Battery"
-        } else if lower.contains("nand") || lower.contains("storage") {
-            return "Storage"
+        if lower.contains("tcal") {
+            // Calibration reference targets are distinct from operating die sensors
+            return .calibration
+        } else if lower.contains("tdie") {
+            return .siliconDie
         } else if lower.contains("tdev") {
-            return "Device Node"
-        } else if lower.contains("tdie") || lower.contains("tcal") {
-            return "Silicon Die"
+            return .deviceNode
+        } else if lower.contains("battery") || lower.contains("gas gauge") {
+            return .battery
+        } else if lower.contains("nand") || lower.contains("storage") {
+            return .storage
         } else {
-            return "System"
+            return .system
+        }
+    }
+}
+
+/// Operating temperature summary calculated strictly from validated channels.
+/// Calibration and reference channels are explicitly isolated from operating averages.
+struct TemperatureSummary: Sendable, Equatable {
+    /// Peak operating die sensor reading (excludes calibration channels)
+    let peakDieReading: TemperatureReading?
+    /// Mean temperature across validated Silicon Die channels only (excludes calibration, battery, device, storage)
+    let dieAverageC: Double?
+    /// Total active Silicon Die channels contributing to dieAverageC
+    let dieSensorCount: Int
+    /// Peak operating sensor across all subsystems (excludes calibration)
+    let peakOperatingReading: TemperatureReading?
+    /// Total operating channels (excludes calibration)
+    let operatingSensorCount: Int
+    /// Total calibration / reference channels
+    let calibrationSensorCount: Int
+
+    init(readings: [TemperatureReading]) {
+        let calibrationReadings = readings.filter { $0.category == .calibration }
+        self.calibrationSensorCount = calibrationReadings.count
+
+        let operatingReadings = readings.filter { $0.category != .calibration }
+        self.operatingSensorCount = operatingReadings.count
+        self.peakOperatingReading = operatingReadings.max(by: { $0.temperatureC < $1.temperatureC })
+
+        let dieReadings = readings.filter { $0.category == .siliconDie }
+        self.dieSensorCount = dieReadings.count
+        self.peakDieReading = dieReadings.max(by: { $0.temperatureC < $1.temperatureC })
+
+        if !dieReadings.isEmpty {
+            let sum = dieReadings.reduce(0.0) { $0 + $1.temperatureC }
+            self.dieAverageC = sum / Double(dieReadings.count)
+        } else {
+            self.dieAverageC = nil
         }
     }
 }

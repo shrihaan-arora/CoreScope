@@ -22,13 +22,27 @@ struct CoreScopeApp: App {
             }
             print("Thermal State: \(snapshot.thermalState)")
             print("Temperature Status: \(snapshot.temperatureStatus.explanation)")
+            let summary = snapshot.temperatureSummary
+            if let peak = summary.peakDieReading {
+                print("Peak Die Sensor: \(peak.sensorName) (\(String(format: "%.1f", peak.temperatureC)) °C)")
+            } else {
+                print("Peak Die Sensor: Unavailable")
+            }
+            if let avg = summary.dieAverageC {
+                print("Die Sensor Average: \(String(format: "%.1f", avg)) °C (\(summary.dieSensorCount) active die channels)")
+            } else {
+                print("Die Sensor Average: Unavailable")
+            }
+            if summary.calibrationSensorCount > 0 {
+                print("Calibration Channels: \(summary.calibrationSensorCount) (isolated from operating averages)")
+            }
             if snapshot.temperatureReadings.isEmpty {
                 print("Temperature Sensors: 0 accessible")
             } else {
-                print("Temperature Sensors (\(snapshot.temperatureReadings.count) accessible):")
+                print("Temperature Channels (\(snapshot.temperatureReadings.count) total):")
                 for reading in snapshot.temperatureReadings {
                     let tempStr = String(format: "%.1f", reading.temperatureC)
-                    print("  - \(reading.sensorName): \(tempStr) °C")
+                    print("  - [\(reading.category.rawValue)] \(reading.sensorName): \(tempStr) °C")
                 }
             }
             exit(0)
